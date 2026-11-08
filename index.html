@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#4cc9f0" />
+  <meta name="description" content="Lane Rush — a colorful 3D endless car dodging game." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Lane Rush" />
+  <title>Lane Rush</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+</head>
+<body>
+  <div id="game"></div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-box">
+      <span class="hud-label">SCORE</span>
+      <span id="score" class="hud-value">0</span>
+    </div>
+    <div class="hud-box coins">
+      <span class="coin-icon"></span>
+      <span id="coins" class="hud-value">0</span>
+    </div>
+    <div class="hud-box">
+      <span class="hud-label">BEST</span>
+      <span id="best" class="hud-value">0</span>
+    </div>
+  </div>
+
+  <button id="mute" class="icon-btn" aria-label="Toggle sound">🔊</button>
+
+  <!-- Start screen -->
+  <div id="start" class="screen">
+    <h1 class="title">LANE<br /><span>RUSH</span></h1>
+    <p class="subtitle">Dodge traffic · Grab coins</p>
+    <div class="best-line">Best: <b id="start-best">0</b></div>
+    <div class="cta pulse" id="tap-play">Tap to Play</div>
+    <p class="hint">Swipe ← → to change lanes<br /><small>Desktop: arrow keys / A D</small></p>
+  </div>
+
+  <!-- Game over -->
+  <div id="over" class="screen hidden">
+    <h2 class="crash-title">CRASH!</h2>
+    <div class="card">
+      <div class="row"><span>Score</span><b id="final-score">0</b></div>
+      <div class="row"><span>Coins</span><b id="final-coins">0</b></div>
+      <div class="row"><span>Best</span><b id="final-best">0</b></div>
+      <div id="new-best" class="new-best hidden">★ NEW BEST! ★</div>
+    </div>
+    <button id="again" class="cta">Play Again</button>
+  </div>
+
+  <div id="rotate" class="screen rotate">
+    <div class="phone-icon">📱</div>
+    <p>Rotate your phone to portrait</p>
+  </div>
+
+  <div id="loading" class="screen">
+    <p class="subtitle" id="loading-text">Loading…</p>
+  </div>
+
+  <script type="module" src="game.js"></script>
+  <script>
+    setTimeout(function () {
+      if (!window.__laneRushBooted) {
+        document.getElementById('loading-text').textContent = 'Could not load the game. Check your connection and reload.';
+      }
+    }, 15000);
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>
