@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#4cc9f0" />
-  <meta name="description" content="Lane Rush — a colorful 3D endless car dodging game." />
+  <meta name="description" content="Lane Rush — a colorful 3D endless car dodging game with 20 levels and a garage." />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -19,44 +19,141 @@
 <body>
   <div id="game"></div>
 
-  <!-- HUD -->
+  <!-- ===== HUD ===== -->
   <div id="hud" class="hidden">
-    <div class="hud-box">
-      <span class="hud-label">SCORE</span>
-      <span id="score" class="hud-value">0</span>
+    <div class="hud-row">
+      <div class="hud-box">
+        <span class="hud-label">SCORE</span>
+        <span id="score" class="hud-value">0</span>
+      </div>
+      <div class="hud-box coins">
+        <span class="coin-icon"></span>
+        <span id="coins" class="hud-value">0</span>
+      </div>
+      <div class="hud-box">
+        <span id="hud-third-label" class="hud-label">BEST</span>
+        <span id="best" class="hud-value">0</span>
+      </div>
     </div>
-    <div class="hud-box coins">
-      <span class="coin-icon"></span>
-      <span id="coins" class="hud-value">0</span>
+    <div id="goal" class="goal hidden">
+      <div class="goal-text"><span id="goal-label">Reach 500 m</span><span id="goal-count">0 / 500</span></div>
+      <div class="goal-bar"><div id="goal-fill"></div></div>
     </div>
-    <div class="hud-box">
-      <span class="hud-label">BEST</span>
-      <span id="best" class="hud-value">0</span>
-    </div>
+    <div id="shield" class="shield hidden">🛡️ Shield</div>
   </div>
 
+  <button id="pause" class="icon-btn left hidden" aria-label="Pause">⏸</button>
   <button id="mute" class="icon-btn" aria-label="Toggle sound">🔊</button>
 
-  <!-- Start screen -->
-  <div id="start" class="screen">
+  <!-- ===== Main menu ===== -->
+  <div id="menu" class="screen">
+    <div class="wallet"><span class="coin-icon"></span><b class="wallet-val">0</b></div>
     <h1 class="title">LANE<br /><span>RUSH</span></h1>
-    <p class="subtitle">Dodge traffic · Grab coins</p>
-    <div class="best-line">Best: <b id="start-best">0</b></div>
-    <div class="cta pulse" id="tap-play">Tap to Play</div>
+    <div class="menu-buttons">
+      <button id="btn-levels" class="cta">▶ Levels</button>
+      <button id="btn-endless" class="cta alt">∞ Endless</button>
+      <button id="btn-garage" class="cta alt2">🚗 Garage</button>
+    </div>
+    <div class="best-line">Endless best: <b id="menu-best">0</b> · ⭐ <b id="menu-stars">0</b>/60</div>
     <p class="hint">Swipe ← → to change lanes<br /><small>Desktop: arrow keys / A D</small></p>
   </div>
 
-  <!-- Game over -->
+  <!-- ===== Level select ===== -->
+  <div id="levels" class="screen panel-screen hidden">
+    <div class="topbar">
+      <button class="back-btn" data-back>‹</button>
+      <h2>Levels</h2>
+      <div class="wallet small"><span class="coin-icon"></span><b class="wallet-val">0</b></div>
+    </div>
+    <div id="level-list" class="level-list"></div>
+  </div>
+
+  <!-- Level info modal -->
+  <div id="level-info" class="modal hidden">
+    <div class="modal-card">
+      <div id="li-world" class="li-world">City</div>
+      <h3 id="li-title">Level 1</h3>
+      <div id="li-goal" class="li-goal">Reach 400 m</div>
+      <ul id="li-stars" class="li-stars"></ul>
+      <div class="li-car">🚗 <b id="li-car">Rookie</b> <button id="li-change" class="link-btn">Change</button></div>
+      <div class="modal-buttons">
+        <button id="li-close" class="cta small ghost">Close</button>
+        <button id="li-play" class="cta small">Play</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Garage ===== -->
+  <div id="garage" class="screen garage-screen hidden">
+    <div class="topbar">
+      <button class="back-btn" data-back>‹</button>
+      <h2>Garage</h2>
+      <div class="wallet small"><span class="coin-icon"></span><b class="wallet-val">0</b></div>
+    </div>
+    <div class="garage-panel">
+      <div class="car-nav">
+        <button id="g-prev" class="nav-btn">◀</button>
+        <div class="car-name-wrap">
+          <div id="g-name" class="car-name">Rookie</div>
+          <div id="g-dots" class="dots"></div>
+        </div>
+        <button id="g-next" class="nav-btn">▶</button>
+      </div>
+      <div id="g-perk" class="perk"></div>
+      <div class="stats">
+        <div class="stat"><span>Speed</span><div class="bar"><i id="g-speed"></i></div></div>
+        <div class="stat"><span>Handling</span><div class="bar"><i id="g-handling"></i></div></div>
+        <div class="stat"><span>Size</span><div class="bar"><i id="g-size"></i></div></div>
+      </div>
+      <button id="g-action" class="cta">Select</button>
+    </div>
+  </div>
+
+  <!-- ===== Game over (crash) ===== -->
   <div id="over" class="screen hidden">
     <h2 class="crash-title">CRASH!</h2>
     <div class="card">
+      <div id="over-goal-row" class="row hidden"><span id="over-goal-label">Progress</span><b id="over-goal">0</b></div>
       <div class="row"><span>Score</span><b id="final-score">0</b></div>
       <div class="row"><span>Coins</span><b id="final-coins">0</b></div>
-      <div class="row"><span>Best</span><b id="final-best">0</b></div>
+      <div id="over-best-row" class="row"><span>Best</span><b id="final-best">0</b></div>
       <div id="new-best" class="new-best hidden">★ NEW BEST! ★</div>
     </div>
-    <button id="again" class="cta">Play Again</button>
+    <div class="col-buttons">
+      <button id="again" class="cta">Play Again</button>
+      <button id="over-menu" class="cta small ghost">Menu</button>
+    </div>
   </div>
+
+  <!-- ===== Level complete ===== -->
+  <div id="complete" class="screen hidden">
+    <h2 class="win-title">LEVEL <span id="c-level">1</span><br />COMPLETE!</h2>
+    <div class="big-stars"><span class="bstar">★</span><span class="bstar">★</span><span class="bstar">★</span></div>
+    <div class="card">
+      <div class="row"><span>Coins collected</span><b id="c-coins">0</b></div>
+      <div class="row"><span>Star bonus</span><b id="c-bonus">0</b></div>
+      <div class="row total"><span>Coins earned</span><b id="c-total">0</b></div>
+      <div id="c-unlock" class="new-best hidden"></div>
+    </div>
+    <div class="col-buttons">
+      <button id="c-next" class="cta">Next Level ▶</button>
+      <div class="row-buttons">
+        <button id="c-retry" class="cta small ghost">↻ Retry</button>
+        <button id="c-levels" class="cta small ghost">Levels</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Pause ===== -->
+  <div id="paused" class="screen hidden">
+    <h2 class="win-title">PAUSED</h2>
+    <div class="col-buttons">
+      <button id="p-resume" class="cta">Resume</button>
+      <button id="p-quit" class="cta small ghost">Quit</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
 
   <div id="rotate" class="screen rotate">
     <div class="phone-icon">📱</div>
