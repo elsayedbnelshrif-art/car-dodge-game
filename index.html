@@ -44,7 +44,11 @@
   </div>
 
   <button id="pause" class="icon-btn left hidden" aria-label="Pause">⏸</button>
-  <button id="mute" class="icon-btn" aria-label="Toggle sound">🔊</button>
+  <div id="nearmiss" class="nearmiss">NEAR MISS!<small>+3 coins</small></div>
+  <div id="tutorial" class="tutorial hidden">
+    <div class="tut-track"><span class="tut-arrow">‹</span><span class="tut-hand">👆</span><span class="tut-arrow">›</span></div>
+    <div id="tut-text" class="tut-text">Swipe left or right to change lanes</div>
+  </div>
 
   <!-- ===== Main menu ===== -->
   <div id="menu" class="screen">
@@ -57,10 +61,13 @@
         <button id="btn-garage" class="cta alt2 half">🚗 Garage</button>
         <button id="btn-upgrades" class="cta alt3 half">⚡ Upgrades</button>
       </div>
+      <div class="row-buttons">
+        <button id="btn-missions" class="cta alt4 half">🎯 Missions</button>
+        <button id="btn-settings" class="cta ghost half">⚙️ Settings</button>
+      </div>
     </div>
     <div id="menu-shields" class="best-line hidden"></div>
     <div class="best-line">Endless best: <b id="menu-best">0</b> · ⭐ <b id="menu-stars">0</b>/60</div>
-    <p class="hint">Swipe ← → to change lanes<br /><small>Desktop: arrow keys / A D</small></p>
   </div>
 
   <!-- ===== Level select ===== -->
@@ -125,6 +132,28 @@
     <div id="upgrade-list" class="level-list"></div>
   </div>
 
+  <!-- ===== Daily missions ===== -->
+  <div id="missions" class="screen panel-screen hidden">
+    <div class="topbar">
+      <button class="back-btn" data-back>‹</button>
+      <h2>Missions</h2>
+      <div class="wallet small"><span class="coin-icon"></span><b class="wallet-val">0</b></div>
+    </div>
+    <p class="up-intro">Three new missions every day. Finish them in any mode to earn coins.</p>
+    <div id="mission-list" class="level-list"></div>
+  </div>
+
+  <!-- ===== Settings ===== -->
+  <div id="settings" class="modal top hidden">
+    <div class="modal-card">
+      <h3>⚙️ Settings</h3>
+      <div class="set-row"><span>🎵 Music</span><button class="switch" role="switch" data-setting="music" aria-label="Music"><i></i></button></div>
+      <div class="set-row"><span>🔊 Sound effects</span><button class="switch" role="switch" data-setting="sound" aria-label="Sound effects"><i></i></button></div>
+      <div class="set-row"><span>📳 Vibration</span><button class="switch" role="switch" data-setting="vibration" aria-label="Vibration"><i></i></button></div>
+      <button id="settings-close" class="cta small">Done</button>
+    </div>
+  </div>
+
   <!-- ===== Daily reward ===== -->
   <div id="daily" class="modal hidden">
     <div class="modal-card">
@@ -175,7 +204,10 @@
     <h2 class="win-title">PAUSED</h2>
     <div class="col-buttons">
       <button id="p-resume" class="cta">Resume</button>
-      <button id="p-quit" class="cta small ghost">Quit</button>
+      <div class="row-buttons">
+        <button id="p-settings" class="cta small ghost">⚙️ Settings</button>
+        <button id="p-quit" class="cta small ghost">Quit</button>
+      </div>
     </div>
   </div>
 

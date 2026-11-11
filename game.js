@@ -166,6 +166,18 @@ const UPGRADE_COSTS = [80, 160, 300, 500, 800]; // cost of upgrade level 1..5
 const puDurationAt = (key, lvl) => POWERUPS[key].base + POWERUPS[key].step * lvl;
 const puDuration = (key) => puDurationAt(key, save.upgrades[key]);
 
+// Daily missions: [target, reward] tiers per mission type.
+const MISSION_DEFS = {
+  coins: { icon: '🪙', text: (n) => `Collect ${n} coins`, tiers: [[60, 40], [100, 60], [150, 90]] },
+  nearmiss: { icon: '😱', text: (n) => `Do ${n} near misses`, tiers: [[3, 50], [5, 80], [8, 120]] },
+  levels: { icon: '🏁', text: (n) => `Finish ${n} level${n > 1 ? 's' : ''}`, tiers: [[1, 50], [2, 90], [3, 130]] },
+  distance: { icon: '🛣️', text: (n) => `Drive ${n} m in total`, tiers: [[1500, 40], [3000, 70], [5000, 110]] },
+  powerups: { icon: '⚡', text: (n) => `Grab ${n} power-ups`, tiers: [[2, 40], [4, 70]] },
+  endless: { icon: '∞', text: (n) => `Reach ${n} m in one Endless run`, tiers: [[400, 50], [700, 90], [1000, 140]], max: true },
+  stars: { icon: '⭐', text: (n) => `Earn ${n} stars in levels`, tiers: [[3, 50], [6, 90]] },
+};
+const NEAR_MISS_BONUS = 3;
+
 // Day 1..7 of a login streak. Day 7 also grants a free shield.
 const DAILY_REWARDS = [25, 50, 75, 100, 150, 200, 300];
 
@@ -198,7 +210,16 @@ function loadSave() {
     upgrades: { magnet: 0, shield: 0, double: 0 },
     daily: { last: '', streak: 0 }, // last claimed local date (YYYY-MM-DD) and streak day (1..7)
     freeShields: 0,
+    settings: { music: true, sound: true, vibration: true },
+    tutorialDone: false,
+    missions: null, // { date, list: [{ type, target, reward, progress, claimed }] }
   };
+  if (safeGet('laneRush.muted') === '1') {
+    // carried over from the old single mute button
+    def.settings.music = false;
+    def.settings.sound = false;
+  }
+  const defSettings = { ...def.settings };
   try {
     const raw = JSON.parse(safeGet(SAVE_KEY) || 'null');
     if (raw && typeof raw === 'object') {
@@ -215,6 +236,18 @@ function loadSave() {
       const dl = raw.daily && typeof raw.daily === 'object' ? raw.daily : {};
       s.daily = { last: typeof dl.last === 'string' ? dl.last : '', streak: Math.max(0, Math.min(7, dl.streak | 0)) };
       s.freeShields = Math.max(0, s.freeShields | 0);
+      const st = raw.settings && typeof raw.settings === 'object' ? raw.settings : {};
+      s.settings = {};
+      for (const k of ['music', 'sound', 'vibration']) s.settings[k] = typeof st[k] === 'boolean' ? st[k] : defSettings[k];
+      // Players who already made progress before the tutorial existed skip it.
+      s.tutorialDone = typeof raw.tutorialDone === 'boolean' ? raw.tutorialDone : s.unlocked > 0 || s.best > 0;
+      const ms = raw.missions;
+      const okMissions =
+        ms && typeof ms.date === 'string' && Array.isArray(ms.list) && ms.list.length > 0 &&
+        ms.list.every((m) => m && MISSION_DEFS[m.type] && m.target > 0 && m.reward >= 0);
+      s.missions = okMissions
+        ? { date: ms.date, list: ms.list.map((m) => ({ type: m.type, target: m.target | 0, reward: m.reward | 0, progress: Math.max(0, Math.min(m.target | 0, m.progress | 0)), claimed: !!m.claimed })) }
+        : null;
       return s;
     }
   } catch (e) {
@@ -226,7 +259,19 @@ const save = loadSave();
 function persist() {
   safeSet(SAVE_KEY, JSON.stringify(save));
 }
-let muted = safeGet('laneRush.muted') === '1';
+const settings = save.settings;
+let lastVibe = 0;
+function vibrate(pattern, minGap = 0) {
+  if (!settings.vibration || !navigator.vibrate) return;
+  const now = performance.now();
+  if (now - lastVibe < minGap) return;
+  lastVibe = now;
+  try {
+    navigator.vibrate(pattern);
+  } catch (e) {
+    /* not allowed */
+  }
+}
 const totalStars = () => save.stars.reduce((a, b) => a + b, 0);
 const carUnlocked = (car) => save.unlocked >= car.unlock - 1;
 
@@ -246,7 +291,6 @@ const ui = {
   goalFill: $('goal-fill'),
   shield: $('shield'),
   pause: $('pause'),
-  mute: $('mute'),
   loading: $('loading'),
   toast: $('toast'),
   screens: {
@@ -254,6 +298,7 @@ const ui = {
     levels: $('levels'),
     garage: $('garage'),
     upgrades: $('upgrades'),
+    missions: $('missions'),
     over: $('over'),
     complete: $('complete'),
     paused: $('paused'),
@@ -288,7 +333,11 @@ function toast(msg) {
    ========================================================= */
 const Sound = (() => {
   let ctx = null;
-  let master = null;
+  let master = null; // sound effects bus
+  let musicBus = null;
+  let musicTimer = null;
+  let musicStep = 0;
+  let musicTime = 0;
   let noiseBuf = null;
   let engine = null;
 
@@ -301,18 +350,85 @@ const Sound = (() => {
     if (!AC) return;
     ctx = new AC();
     master = ctx.createGain();
-    master.gain.value = muted ? 0 : 1;
+    master.gain.value = settings.sound ? 1 : 0;
     master.connect(ctx.destination);
+    musicBus = ctx.createGain();
+    musicBus.gain.value = 0.55;
+    musicBus.connect(ctx.destination);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    musicStart();
   }
 
-  function setMuted(m) {
-    if (master) master.gain.setTargetAtTime(m ? 0 : 1, ctx.currentTime, 0.02);
+  function applySettings() {
+    if (!ctx) return;
+    master.gain.setTargetAtTime(settings.sound ? 1 : 0, ctx.currentTime, 0.02);
+    if (settings.music) musicStart();
+    else musicStop();
   }
 
-  function tone(freq, start, dur, type = 'square', vol = 0.12) {
+  /* ----- Background music: a looping 8-bar chiptune scheduled ahead of time ----- */
+  const STEP = 60 / 116 / 4; // one 16th note
+  const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const CHORDS = [[57, 60, 64], [53, 57, 60], [55, 60, 64], [55, 59, 62]]; // Am F C G
+  const BASS = [45, 41, 48, 43];
+  const ARP = [0, 1, 2, 1, 2, 1, 0, 2];
+  const LEAD = [69, 72, 76, 74, 72, 69, 67, 72, 76, 79, 76, 74, 72, 74, 69, 67];
+
+  function musicNote(step, t) {
+    const bar = Math.floor(step / 16) % 8;
+    const s = step % 16;
+    const ch = bar % 4;
+    if (s % 4 === 0) {
+      // kick
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.frequency.setValueAtTime(130, t);
+      o.frequency.exponentialRampToValueAtTime(42, t + 0.1);
+      g.gain.setValueAtTime(0.32, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+      o.connect(g).connect(musicBus);
+      o.start(t);
+      o.stop(t + 0.15);
+    }
+    if (s % 4 === 2) noise(t, 0.04, 0.035, 'highpass', 7000, 9000, musicBus);
+    if (s === 4 || s === 12) noise(t, 0.1, 0.07, 'bandpass', 1900, 1200, musicBus);
+    if (s === 0 || s === 3 || s === 6 || s === 8 || s === 11 || s === 14) {
+      tone(hz(BASS[ch] + (s === 6 || s === 14 ? 12 : 0)), t, 0.14, 'triangle', 0.16, musicBus);
+    }
+    if (s % 2 === 0) tone(hz(CHORDS[ch][ARP[s / 2]] + 12), t, 0.1, 'square', 0.022, musicBus);
+    if (bar >= 4 && (s === 0 || s === 3 || s === 6 || s === 10 || s === 12)) {
+      tone(hz(LEAD[(bar * 5 + s) % LEAD.length]), t, 0.22, 'triangle', 0.055, musicBus);
+    }
+  }
+
+  function musicTick() {
+    if (!ctx || ctx.state !== 'running') return;
+    if (musicTime < ctx.currentTime) musicTime = ctx.currentTime + 0.03; // timers were throttled: skip ahead
+    while (musicTime < ctx.currentTime + 0.35) {
+      musicNote(musicStep, musicTime);
+      musicTime += STEP;
+      musicStep = (musicStep + 1) % 128;
+    }
+  }
+
+  function musicStart() {
+    if (!ctx || musicTimer || !settings.music || document.hidden) return;
+    musicTime = ctx.currentTime + 0.05;
+    musicBus.gain.cancelScheduledValues(ctx.currentTime);
+    musicBus.gain.setTargetAtTime(0.55, ctx.currentTime, 0.05);
+    musicTimer = setInterval(musicTick, 90);
+  }
+
+  function musicStop() {
+    if (!musicTimer) return;
+    clearInterval(musicTimer);
+    musicTimer = null;
+    musicBus.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.04); // fade out notes already scheduled
+  }
+
+  function tone(freq, start, dur, type = 'square', vol = 0.12, dest = master) {
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = type;
@@ -320,12 +436,12 @@ const Sound = (() => {
     g.gain.setValueAtTime(0.0001, start);
     g.gain.exponentialRampToValueAtTime(vol, start + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-    o.connect(g).connect(master);
+    o.connect(g).connect(dest);
     o.start(start);
     o.stop(start + dur + 0.02);
   }
 
-  function noise(start, dur, vol, type, f0, f1) {
+  function noise(start, dur, vol, type, f0, f1, dest = master) {
     const src = ctx.createBufferSource();
     src.buffer = noiseBuf;
     const f = ctx.createBiquadFilter();
@@ -336,7 +452,7 @@ const Sound = (() => {
     g.gain.setValueAtTime(0.0001, start);
     g.gain.exponentialRampToValueAtTime(vol, start + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-    src.connect(f).connect(g).connect(master);
+    src.connect(f).connect(g).connect(dest);
     src.start(start, Math.random() * 0.2, dur + 0.05);
   }
 
@@ -394,6 +510,14 @@ const Sound = (() => {
   function star(i) {
     if (!ctx) return;
     tone(880 * Math.pow(1.25, i), ctx.currentTime, 0.2, 'triangle', 0.1);
+  }
+
+  function nearMiss() {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    noise(t, 0.18, 0.12, 'bandpass', 900, 3600);
+    tone(1175, t + 0.03, 0.09, 'square', 0.06);
+    tone(1760, t + 0.1, 0.16, 'square', 0.06);
   }
 
   function power() {
@@ -458,7 +582,7 @@ const Sound = (() => {
     e.o2.stop(t + 0.5);
   }
 
-  return { init, setMuted, coin, swoosh, click, crash, shield, fanfare, star, buy, power, powerEnd, engineStart, engineUpdate, engineStop };
+  return { init, applySettings, musicStart, musicStop, nearMiss, coin, swoosh, click, crash, shield, fanfare, star, buy, power, powerEnd, engineStart, engineUpdate, engineStop };
 })();
 
 /* =========================================================
@@ -1171,6 +1295,7 @@ function spawnCar(lane, z) {
   c.lane = lane;
   c.active = true;
   c.wobble = Math.random() * Math.PI * 2;
+  c.nm = false; // near miss already awarded for this car
   c.mesh.position.set(LANES[lane], 0, z);
   c.mesh.rotation.set(0, Math.PI, 0);
   c.mesh.visible = true;
@@ -1354,6 +1479,13 @@ const state = {
   fx: { magnet: 0, shield: 0, double: 0 }, // seconds left on each power-up
   fxMax: { magnet: 1, shield: 1, double: 1 },
   puTimer: 0,
+  time: 0, // seconds since the run started (keeps running during the tutorial)
+  nearMisses: 0,
+  leftLane: -1, // lane the player most recently swerved out of...
+  leftAt: -9, // ...and when (state.time)
+  tutorial: 0, // 0 off, 1 waiting for swipes, 2 "well done" message
+  tutSwipes: 0,
+  tutTimer: 0,
   invuln: 0,
   shownScore: -1,
   shownCoins: -1,
@@ -1378,6 +1510,155 @@ function clearWorld() {
   for (const k of PU_KEYS) state.fx[k] = 0;
   shieldGlow.visible = false;
   refreshPowerHUD();
+  state.tutorial = 0;
+  $('tutorial').classList.add('hidden');
+  $('nearmiss').classList.remove('show');
+}
+
+/* ---------- Daily missions ---------- */
+function ensureMissions() {
+  const today = dateStr(new Date());
+  if (save.missions && save.missions.date === today) return;
+  const types = Object.keys(MISSION_DEFS);
+  for (let i = types.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [types[i], types[j]] = [types[j], types[i]];
+  }
+  save.missions = {
+    date: today,
+    list: types.slice(0, 3).map((type) => {
+      const tiers = MISSION_DEFS[type].tiers;
+      const [target, reward] = tiers[Math.floor(Math.random() * tiers.length)];
+      return { type, target, reward, progress: 0, claimed: false };
+    }),
+  };
+  persist();
+}
+function missionProgress(type, value) {
+  const ms = save.missions;
+  if (!ms) return;
+  for (const m of ms.list) {
+    if (m.type !== type || m.progress >= m.target) continue;
+    m.progress = Math.min(m.target, MISSION_DEFS[type].max ? Math.max(m.progress, value) : m.progress + value);
+    if (m.progress >= m.target) {
+      toast('🎯 Mission complete!');
+      refreshMissionBadge();
+    }
+  }
+}
+function refreshMissionBadge() {
+  const n = save.missions ? save.missions.list.filter((m) => m.progress >= m.target && !m.claimed).length : 0;
+  $('btn-missions').classList.toggle('badge', n > 0);
+}
+function openMissions() {
+  ensureMissions();
+  state.mode = 'missions';
+  showHUD(false);
+  showScreen('missions');
+  renderMissions();
+}
+function renderMissions() {
+  const list = $('mission-list');
+  list.innerHTML = '';
+  save.missions.list.forEach((m) => {
+    const def = MISSION_DEFS[m.type];
+    const done = m.progress >= m.target;
+    const card = document.createElement('div');
+    card.className = 'up-card mission' + (m.claimed ? ' claimed' : '');
+    card.style.setProperty('--pu', done ? '#2fbf71' : '#4361ee');
+    card.innerHTML = `
+      <div class="up-icon">${def.icon}</div>
+      <div class="up-body">
+        <div class="up-name">${def.text(m.target)}</div>
+        <div class="m-bar"><i style="width:${(m.progress / m.target) * 100}%"></i></div>
+        <div class="up-dur">${m.progress} / ${m.target}</div>
+      </div>`;
+    const btn = document.createElement('button');
+    btn.className = 'cta small up-buy';
+    if (m.claimed) {
+      btn.textContent = '✓ Done';
+      btn.disabled = true;
+    } else {
+      btn.innerHTML = `<span class="coin-icon"></span>${done ? 'Claim ' : ''}${m.reward}`;
+      btn.disabled = !done;
+      btn.addEventListener('click', () => {
+        Sound.init();
+        if (m.claimed || m.progress < m.target) return;
+        m.claimed = true;
+        save.coins += m.reward;
+        persist();
+        Sound.buy();
+        toast(`+${m.reward} coins!`);
+        refreshWallets();
+        refreshMissionBadge();
+        renderMissions();
+      });
+    }
+    card.appendChild(btn);
+    list.appendChild(card);
+  });
+}
+/** Called once whenever a run ends (crash, level complete or quit). */
+function endRunMissions() {
+  const dist = Math.floor(state.distance);
+  missionProgress('distance', dist);
+  if (!state.level) missionProgress('endless', dist);
+}
+
+/* ---------- Settings ---------- */
+function renderSettings() {
+  document.querySelectorAll('#settings .switch').forEach((b) => {
+    const on = settings[b.dataset.setting];
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', on);
+  });
+}
+function openSettings() {
+  renderSettings();
+  $('settings').classList.remove('hidden');
+}
+
+/* ---------- First-time tutorial ---------- */
+function startTutorial() {
+  state.tutorial = 1;
+  state.tutSwipes = 0;
+  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  $('tut-text').textContent = coarse ? 'Swipe left or right to change lanes' : 'Swipe, or press ← → to change lanes';
+  $('tutorial').classList.remove('hidden', 'done');
+}
+function tutorialSwipe() {
+  if (state.tutorial !== 1) return;
+  state.tutSwipes++;
+  if (state.tutSwipes >= 2) {
+    state.tutorial = 2;
+    state.tutTimer = 1.8;
+    $('tut-text').textContent = 'Nice! Dodge the cars and grab the coins';
+    $('tutorial').classList.add('done');
+  }
+}
+function finishTutorial() {
+  state.tutorial = 0;
+  $('tutorial').classList.add('hidden');
+  state.spawnTimer = 0.4;
+  if (!save.tutorialDone) {
+    save.tutorialDone = true;
+    persist();
+  }
+}
+
+/* ---------- Near miss ---------- */
+function nearMiss(c) {
+  c.nm = true;
+  state.nearMisses++;
+  state.coins += NEAR_MISS_BONUS;
+  missionProgress('nearmiss', 1);
+  Sound.nearMiss();
+  vibrate(25);
+  burst(c.mesh.position.x, 1.2, player.position.z, 8, [0xffffff, 0xffd60a], 5, 0.8);
+  const el = $('nearmiss');
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
 }
 
 /* ---------- Power-up effects ---------- */
@@ -1405,6 +1686,7 @@ function refreshPowerHUD() {
   }
 }
 function activatePower(type) {
+  missionProgress('powerups', 1);
   const d = puDuration(type);
   state.fx[type] = d;
   state.fxMax[type] = d;
@@ -1436,6 +1718,8 @@ function goMenu() {
   applyTheme(LEVELS[save.unlocked].theme);
   showHUD(false);
   showScreen('menu');
+  ensureMissions();
+  refreshMissionBadge();
   checkDaily();
 }
 
@@ -1687,6 +1971,10 @@ function startRun(level) {
     shake: 0,
     shield: state.car.shield ? 1 : 0,
     puTimer: 5 + Math.random() * 4,
+    time: 0,
+    nearMisses: 0,
+    leftLane: -1,
+    leftAt: -9,
     invuln: 0,
     shownScore: -1,
     shownCoins: -1,
@@ -1717,6 +2005,8 @@ function startRun(level) {
     ui.goal.classList.add('hidden');
   }
   Sound.engineStart();
+  ensureMissions();
+  if (!save.tutorialDone) startTutorial();
 }
 
 function goalProgress() {
@@ -1739,13 +2029,7 @@ function crash(car) {
   ui.hud.classList.remove('hidden');
   Sound.engineStop();
   Sound.crash();
-  if (navigator.vibrate) {
-    try {
-      navigator.vibrate([60, 40, 120]);
-    } catch (e) {
-      /* ignore */
-    }
-  }
+  vibrate([60, 40, 120]);
   burst(player.position.x, 1, player.position.z - 1.5, 40, [0xff3864, 0xffffff, 0xffd60a, 0x333333, 0xff9f1c], 9, 1.4);
 }
 
@@ -1757,6 +2041,7 @@ function absorbHit(car) {
   state.invuln = 1.2;
   state.shake = 0.5;
   ui.shield.classList.toggle('hidden', state.shield <= 0);
+  vibrate(40);
   Sound.shield();
   burst(car.mesh.position.x, 1.2, car.mesh.position.z, 40, [0x3a86ff, 0xffffff, 0x9bf6ff, 0x333333], 10, 1.3);
   car.active = false;
@@ -1769,6 +2054,7 @@ function showOver() {
   ui.hud.classList.add('hidden');
   const score = Math.floor(state.distance);
   save.coins += state.coins;
+  endRunMissions();
   const lvl = state.level;
   $('final-score').textContent = score;
   $('final-coins').textContent = state.coins;
@@ -1824,6 +2110,9 @@ function completeLevel() {
   save.stars[lvl.index] = Math.max(save.stars[lvl.index], stars);
   save.unlocked = Math.max(save.unlocked, Math.min(LEVELS.length - 1, lvl.index + 1));
   save.coins += state.coins + bonus;
+  missionProgress('levels', 1);
+  missionProgress('stars', stars);
+  endRunMissions();
   persist();
   const unlockMsgs = [];
   if (save.unlocked > prevUnlocked) {
@@ -1880,6 +2169,7 @@ function resumeGame() {
 }
 function quitRun() {
   save.coins += state.coins;
+  endRunMissions();
   persist();
   Sound.click();
   if (state.level) openLevels();
@@ -1890,8 +2180,11 @@ function changeLane(dir) {
   if (state.mode !== 'playing') return;
   const nl = THREE.MathUtils.clamp(state.lane + dir, 0, 2);
   if (nl !== state.lane) {
+    state.leftLane = state.lane;
+    state.leftAt = state.time;
     state.lane = nl;
     Sound.swoosh();
+    tutorialSwipe();
   }
 }
 
@@ -2104,18 +2397,32 @@ on('pause', pauseGame);
 on('p-resume', resumeGame);
 on('p-quit', quitRun);
 
-function renderMute() {
-  ui.mute.textContent = muted ? '🔇' : '🔊';
-}
-renderMute();
-on('mute', () => {
-  muted = !muted;
-  safeSet('laneRush.muted', muted ? '1' : '0');
-  Sound.setMuted(muted);
-  renderMute();
+on('btn-missions', () => {
+  Sound.click();
+  openMissions();
 });
+on('btn-settings', () => {
+  Sound.click();
+  openSettings();
+});
+on('p-settings', openSettings);
+on('settings-close', () => $('settings').classList.add('hidden'));
+$('settings').addEventListener('click', (e) => {
+  if (e.target.id === 'settings') e.target.classList.add('hidden');
+});
+document.querySelectorAll('#settings .switch').forEach((b) =>
+  b.addEventListener('click', () => {
+    const k = b.dataset.setting;
+    settings[k] = !settings[k];
+    persist();
+    Sound.init();
+    Sound.applySettings();
+    if (k === 'vibration') vibrate(30);
+    else Sound.click();
+    renderSettings();
+  })
+);
 ['touchstart', 'mousedown'].forEach((ev) => {
-  ui.mute.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
   ui.pause.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
 });
 
@@ -2133,6 +2440,9 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     if (state.mode === 'playing') pauseGame();
     Sound.engineStop();
+    Sound.musicStop();
+  } else {
+    Sound.musicStart();
   }
 });
 
@@ -2150,12 +2460,17 @@ function update(dt) {
   let ws;
   if (mode === 'playing') {
     const p = state.params;
-    state.elapsed += dt;
+    state.time += dt;
+    if (state.tutorial === 2) {
+      state.tutTimer -= dt;
+      if (state.tutTimer <= 0) finishTutorial();
+    }
+    if (!state.tutorial) state.elapsed += dt; // the clock (and traffic) wait for the tutorial
     state.speed = Math.min(p.maxSpeed, p.startSpeed + state.elapsed * p.speedGain);
     ws = worldSpeed();
     state.distance += ws * dt;
     Sound.engineUpdate(ws);
-  } else if (mode === 'menu' || mode === 'levels' || mode === 'upgrades') {
+  } else if (mode === 'menu' || mode === 'levels' || mode === 'upgrades' || mode === 'missions') {
     ws = 14;
   } else if (mode === 'garage') {
     ws = 0;
@@ -2178,7 +2493,7 @@ function update(dt) {
   updateSnow(dt, roadDz);
 
   // --- Spawning ---
-  if (mode === 'playing') {
+  if (mode === 'playing' && !state.tutorial) {
     state.spawnTimer -= dt;
     if (state.spawnTimer <= 0) state.spawnTimer += spawnRow();
   }
@@ -2189,7 +2504,7 @@ function update(dt) {
     garageSpin += dt * 0.7;
     player.rotation.set(0, garageSpin, 0);
     player.position.set(0, CARS[garageIndex].id === 'comet' ? 0.15 + Math.sin(garageSpin * 3) * 0.08 : 0, 0);
-  } else if (mode === 'playing' || mode === 'menu' || mode === 'levels' || mode === 'upgrades') {
+  } else if (mode === 'playing' || mode === 'menu' || mode === 'levels' || mode === 'upgrades' || mode === 'missions') {
     const prevX = state.x;
     const handling = mode === 'playing' ? car.handling : 13;
     state.x += (LANES[state.lane] - state.x) * Math.min(1, dt * handling);
@@ -2239,6 +2554,13 @@ function update(dt) {
       if (dx < c.halfW + halfW - 0.1 && dz < c.halfL + halfL - 0.15) {
         if (state.shield > 0 || state.fx.shield > 0) absorbHit(c);
         else crash(c);
+      } else if (!c.nm && dz < c.halfL + halfL - 0.15) {
+        // Near miss: the car is alongside us right now (so it can no longer hit us head-on)
+        // and either we are squeezing past it mid lane-change, or we swerved out of its
+        // lane a split second ago.
+        const gap = dx - (c.halfW + halfW);
+        const lateDodge = c.lane === state.leftLane && state.time - state.leftAt < 0.4;
+        if (gap < 0.85 || lateDodge) nearMiss(c);
       }
     }
   }
@@ -2304,6 +2626,8 @@ function update(dt) {
       else if (mode === 'playing' && Math.abs(c.x - state.x) < 1.3 && Math.abs(c.z - player.position.z) < halfL - 0.25) {
         c.active = false;
         state.coins += coinValue;
+        missionProgress('coins', coinValue);
+        vibrate(10, 70);
         Sound.coin();
         burst(c.x, 1.0, c.z, 10, [0xffd60a, 0xfff3b0, 0xffb703], 5, 0.8);
       }

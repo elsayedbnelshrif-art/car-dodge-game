@@ -38,7 +38,19 @@ Power-ups float on the road in a coloured bubble. While one is active, an icon w
 Open the game once a day to claim 25, 50, 75, 100, 150, 200 and then 300 coins plus a free shield on day 7.
 Missing a day resets the streak to day 1; after day 7 the cycle starts again.
 
-Coins, stars, unlocked levels, owned cars, the selected car, power-up upgrades and the daily streak are saved in `localStorage`.
+## Near misses
+Squeeze past a car mid lane-change, or swerve out of its lane at the last moment, and you get a **NEAR MISS!** worth 3 bonus coins.
+
+## Daily missions
+Three random missions every day (collect coins, near misses, finish levels, drive a distance, grab power-ups, reach a distance in Endless, earn stars). Progress counts in every mode; claim the coin rewards on the **Missions** screen.
+
+## Settings and polish
+- Looping background music and all sound effects are generated with the Web Audio API (no audio files).
+- **Settings** (main menu or pause screen): music, sound effects and vibration on/off.
+- Phone vibration on crash, coin pickup and near miss (Android browsers; iOS Safari has no vibration API).
+- A short swipe tutorial runs the first time you play.
+
+Coins, stars, unlocked levels, owned cars, the selected car, power-up upgrades, the daily streak, daily missions and settings are saved in `localStorage`.
 
 ## Files
 | File | Purpose |
