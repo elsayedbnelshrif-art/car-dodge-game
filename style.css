@@ -1196,3 +1196,64 @@ body {
 .mission .up-name {
   font-size: 16px;
 }
+
+/* =========================================================
+   In-run notices: small, brief, tucked under the HUD so the
+   road ahead is never covered. (Replaces the big near-miss
+   popup and mid-screen toasts during gameplay.)
+   ========================================================= */
+.notice {
+  margin: 6px auto 0;
+  width: max-content;
+  max-width: 100%;
+  padding: 3px 12px;
+  border-radius: 99px;
+  background: rgba(20, 24, 60, 0.72);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.notice.gold {
+  color: #ffd60a;
+}
+
+.notice.show {
+  animation: notice 0.8s ease-out forwards;
+}
+
+@keyframes notice {
+  0% { opacity: 0; transform: scale(0.85); }
+  12% { opacity: 1; transform: scale(1.05); }
+  20% { transform: scale(1); }
+  65% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* The tutorial hint also lives under the HUD now, above the horizon. */
+.tutorial {
+  position: static;
+  margin-top: 4px;
+  gap: 4px;
+}
+
+.tut-track {
+  width: 170px;
+  font-size: 30px;
+}
+
+.tut-hand {
+  font-size: 38px;
+}
+
+@keyframes tut-swipe {
+  0%, 100% { transform: translateX(-46px) rotate(-12deg); }
+  50% { transform: translateX(46px) rotate(12deg); }
+}
+
+.tut-text {
+  font-size: 14px;
+  padding: 6px 14px;
+}

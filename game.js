@@ -61,15 +61,15 @@ const THEMES = {
   night: {
     name: 'Night',
     emoji: '🌙',
-    sky: 0x161a3d,
-    fogNear: 35,
-    fogFar: 150,
-    ground: 0x1d4d3a,
-    road: 0x2f3345,
+    sky: 0x1b2d70, // dark blue, not black
+    fogNear: 50,
+    fogFar: 170,
+    ground: 0x2f7a5c,
+    road: 0x4a5070,
     curbA: 0xffd60a,
-    curbB: 0x3a3f5c,
-    hemi: [0x9fb4ff, 0x203040, 1.05],
-    sun: [0x9db0ff, 0.9],
+    curbB: 0x4a5078,
+    hemi: [0xcbd7ff, 0x3d5080, 1.85],
+    sun: [0xbccaff, 1.35],
     clouds: false,
   },
   snow: {
@@ -115,6 +115,17 @@ const LEVELS = Array.from({ length: 20 }, (_, i) => {
       dblMax: 0.25 + 0.35 * d,
     },
   };
+  if (lvl.theme === 'night') {
+    // Night is harder to read, so traffic is a little slower and sparser.
+    const p = lvl.params;
+    p.startSpeed *= 0.92;
+    p.speedGain *= 0.9;
+    p.maxSpeed *= 0.9;
+    p.intStart *= 1.2;
+    p.intMin *= 1.2;
+    p.dblBase *= 0.7;
+    p.dblMax *= 0.75;
+  }
   if (type === 'distance') {
     lvl.s2 = Math.round(target / 16); // coins for 2 stars
     lvl.s3 = Math.round(target / 10); // coins for 3 stars
@@ -321,7 +332,20 @@ function refreshWallets() {
   fs.textContent = `🛡️ Free shield ready${save.freeShields > 1 ? ' ×' + save.freeShields : ''} for your next run`;
 }
 let toastTimer = 0;
+const RUN_MODES = ['playing', 'paused', 'crashing', 'completing'];
+/** Small, short-lived message under the HUD. Used for everything that pops up during a run so nothing covers the road. */
+function notice(msg, kind = '') {
+  const el = $('notice');
+  el.textContent = msg;
+  el.className = 'notice ' + kind;
+  void el.offsetWidth; // restart the animation
+  el.classList.add('show');
+}
 function toast(msg) {
+  if (RUN_MODES.includes(state.mode)) {
+    notice(msg);
+    return;
+  }
   ui.toast.textContent = msg;
   ui.toast.classList.remove('hidden');
   clearTimeout(toastTimer);
@@ -879,8 +903,10 @@ road.rotation.x = -Math.PI / 2;
 road.position.set(0, 0, -150);
 scene.add(road);
 
+const edgeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const dashMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
 for (const s of [-1, 1]) {
-  const edge = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 420), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  const edge = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 420), edgeMat);
   edge.rotation.x = -Math.PI / 2;
   edge.position.set(s * 4.55, 0.01, -150);
   scene.add(edge);
@@ -933,7 +959,7 @@ class Scroller {
 // Lane dashes
 const DASH_PERIOD = 9;
 const dashCount = Math.ceil(WRAP_LEN / DASH_PERIOD);
-const dashes = new Scroller(box(0.18, 0.02, 3), new THREE.MeshBasicMaterial({ color: 0xffffff }), dashCount * 2, (it, i, first) => {
+const dashes = new Scroller(box(0.18, 0.02, 3), dashMat, dashCount * 2, (it, i, first) => {
   if (first) {
     it.x = i % 2 === 0 ? -1.5 : 1.5;
     it.z = WRAP_MIN + Math.floor(i / 2) * DASH_PERIOD;
@@ -1238,8 +1264,21 @@ function applyTheme(key) {
   cloudMat.color.set(key === 'desert' ? 0xfff4e6 : 0xffffff);
   nightSky.visible = key === 'night';
   snowfall.visible = key === 'snow';
-  beam.visible = key === 'night';
-  coinMat.emissive.set(key === 'night' ? 0xb07a00 : 0x6b4a00);
+  const night = key === 'night';
+  beam.visible = night;
+  headlight.visible = night;
+  for (const c of beamCones) c.visible = night;
+  carGlow.visible = night;
+  // Reflective road paint: at night the markings ignore fog, so they glow into the distance.
+  for (const m of [edgeMat, dashMat]) {
+    if (m.fog === night) {
+      m.fog = !night;
+      m.needsUpdate = true;
+    }
+  }
+  edgeMat.color.set(night ? 0xffe9a0 : 0xffffff);
+  curbs.material.emissive.set(night ? 0x4a3f12 : 0x000000);
+  coinMat.emissive.set(night ? 0xb07a00 : 0x6b4a00);
 }
 
 /* =========================================================
@@ -1249,15 +1288,112 @@ const player = new THREE.Mesh(playerGeos[save.selected], vcMat);
 scene.add(player);
 // Fake headlight beams (night only): additive trapezoid on the road ahead of the car
 const beamGeo = new THREE.BufferGeometry();
-beamGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.8, 0, -2, 0.8, 0, -2, -2.6, 0, -16, 0.8, 0, -2, 2.6, 0, -16, -2.6, 0, -16]), 3));
+beamGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.8, 0, -2, 0.8, 0, -2, -3.4, 0, -26, 0.8, 0, -2, 3.4, 0, -26, -3.4, 0, -26]), 3));
 {
-  const n = [0.42, 0.38, 0.22]; // warm near the car, fading to nothing far away
+  const n = [0.3, 0.27, 0.16]; // warm near the car, fading to nothing far away
   beamGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array([...n, ...n, 0, 0, 0, ...n, 0, 0, 0, 0, 0, 0]), 3));
 }
 const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }));
 beam.position.y = 0.03;
 beam.visible = false;
 player.add(beam);
+
+// Real spotlight so the road, curbs and oncoming cars light up ahead of the car (night only).
+// It sits well above the car: a lamp at bumper height would hit the flat road at a grazing
+// angle and barely light it.
+const headlight = new THREE.SpotLight(0xfff0c8, 9, 80, 0.55, 0.8, 0);
+headlight.position.set(0, 7, -2);
+headlight.target.position.set(0, 0, -24);
+headlight.visible = false;
+player.add(headlight, headlight.target);
+
+// Visible light shafts: two faint additive cones fading out with distance.
+const beamCones = [];
+{
+  const g = new THREE.ConeGeometry(1.5, 15, 12, 1, true).toNonIndexed();
+  g.translate(0, -7.5, 0); // apex at the origin
+  g.rotateX(Math.PI / 2 - 0.045); // point forward (-Z), tilted slightly down
+  const pos = g.attributes.position;
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const k = Math.max(0, 1 + pos.getZ(i) / 15) * 0.04; // bright at the lamp, black at the far end
+    col[i * 3] = k;
+    col[i * 3 + 1] = k * 0.92;
+    col[i * 3 + 2] = k * 0.62;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const m = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+  for (const x of [-0.6, 0.6]) {
+    const cone = new THREE.Mesh(g, m);
+    cone.position.set(x, 0.7, -1.9);
+    cone.visible = false;
+    player.add(cone);
+    beamCones.push(cone);
+  }
+}
+
+// Glowing head and tail lights (night only): soft additive sprites that ignore fog,
+// so cars can be spotted from far away.
+const GLOW_MAX = 24; // cars
+const glowPos = new Float32Array((GLOW_MAX * 4 + 2) * 3).fill(-999);
+const glowCol = new Float32Array((GLOW_MAX * 4 + 2) * 3);
+const glowGeo = new THREE.BufferGeometry();
+glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPos, 3));
+glowGeo.setAttribute('color', new THREE.BufferAttribute(glowCol, 3));
+const glowTex = (() => {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g2 = cv.getContext('2d');
+  const gr = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)');
+  gr.addColorStop(0.25, 'rgba(255,255,255,0.75)');
+  gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g2.fillStyle = gr;
+  g2.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(cv);
+})();
+const carGlow = new THREE.Points(
+  glowGeo,
+  new THREE.PointsMaterial({ map: glowTex, size: 1.9, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })
+);
+carGlow.frustumCulled = false;
+carGlow.visible = false;
+scene.add(carGlow);
+function setGlow(i, x, y, z, r, g, b) {
+  glowPos[i * 3] = x;
+  glowPos[i * 3 + 1] = y;
+  glowPos[i * 3 + 2] = z;
+  glowCol[i * 3] = r;
+  glowCol[i * 3 + 1] = g;
+  glowCol[i * 3 + 2] = b;
+}
+function updateCarGlow() {
+  if (!carGlow.visible) return;
+  let n = 0;
+  for (let k = 0; k < traffic.length && k < GLOW_MAX; k++) {
+    const c = traffic[k];
+    if (!c.active) continue;
+    const p = c.mesh.position;
+    const w = c.halfW - 0.28;
+    // Full strength far away (that is where they are needed); dimmer up close, where the
+    // sprites get large on screen and our own headlights already light the car.
+    const gk = Math.min(1, Math.max(0.22, -p.z / 45));
+    // oncoming cars: headlights face the player (+Z), tail lights at the back
+    setGlow(n++, p.x - w, 0.78, p.z + c.halfL, gk, gk * 0.95, gk * 0.7);
+    setGlow(n++, p.x + w, 0.78, p.z + c.halfL, gk, gk * 0.95, gk * 0.7);
+    setGlow(n++, p.x - w, 0.8, p.z - c.halfL, gk, gk * 0.1, gk * 0.1);
+    setGlow(n++, p.x + w, 0.8, p.z - c.halfL, gk, gk * 0.1, gk * 0.1);
+  }
+  if (player.visible) {
+    const pp = player.position;
+    const hl = state.car.halfL + 0.12;
+    setGlow(n++, pp.x - 0.55, pp.y + 0.7, pp.z + hl, 0.3, 0.02, 0.04);
+    setGlow(n++, pp.x + 0.55, pp.y + 0.7, pp.z + hl, 0.3, 0.02, 0.04);
+  }
+  glowGeo.setDrawRange(0, n);
+  glowGeo.attributes.position.needsUpdate = true;
+  glowGeo.attributes.color.needsUpdate = true;
+}
 
 /* =========================================================
    Traffic
@@ -1512,7 +1648,7 @@ function clearWorld() {
   refreshPowerHUD();
   state.tutorial = 0;
   $('tutorial').classList.add('hidden');
-  $('nearmiss').classList.remove('show');
+  $('notice').classList.remove('show');
 }
 
 /* ---------- Daily missions ---------- */
@@ -1655,10 +1791,7 @@ function nearMiss(c) {
   Sound.nearMiss();
   vibrate(25);
   burst(c.mesh.position.x, 1.2, player.position.z, 8, [0xffffff, 0xffd60a], 5, 0.8);
-  const el = $('nearmiss');
-  el.classList.remove('show');
-  void el.offsetWidth;
-  el.classList.add('show');
+  notice(`NEAR MISS! +${NEAR_MISS_BONUS}`, 'gold');
 }
 
 /* ---------- Power-up effects ---------- */
@@ -2646,6 +2779,8 @@ function update(dt) {
   coinMesh.instanceMatrix.needsUpdate = true;
 
   updateParticles(dt, roadDz);
+  if (mode !== 'garage') updateCarGlow();
+  else if (carGlow.visible) glowGeo.setDrawRange(0, 0);
 
   // --- Level goal ---
   if (state.mode === 'playing' && state.level && goalProgress() >= state.level.target) completeLevel();

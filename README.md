@@ -40,6 +40,7 @@ Missing a day resets the streak to day 1; after day 7 the cycle starts again.
 
 ## Near misses
 Squeeze past a car mid lane-change, or swerve out of its lane at the last moment, and you get a **NEAR MISS!** worth 3 bonus coins.
+Messages during a run (near misses, shield and mission notices) appear as a small, brief line under the score, so nothing covers the road.
 
 ## Daily missions
 Three random missions every day (collect coins, near misses, finish levels, drive a distance, grab power-ups, reach a distance in Endless, earn stars). Progress counts in every mode; claim the coin rewards on the **Missions** screen.
