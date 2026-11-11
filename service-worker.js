@@ -1,5 +1,5 @@
 /* Lane Rush service worker: offline-first app shell + cached Three.js */
-const CACHE = 'lane-rush-v2';
+const CACHE = 'lane-rush-v3';
 const THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 const ASSETS = [
   './',

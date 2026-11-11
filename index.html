@@ -40,6 +40,7 @@
       <div class="goal-bar"><div id="goal-fill"></div></div>
     </div>
     <div id="shield" class="shield hidden">🛡️ Shield</div>
+    <div id="powerups" class="powerups"></div>
   </div>
 
   <button id="pause" class="icon-btn left hidden" aria-label="Pause">⏸</button>
@@ -52,8 +53,12 @@
     <div class="menu-buttons">
       <button id="btn-levels" class="cta">▶ Levels</button>
       <button id="btn-endless" class="cta alt">∞ Endless</button>
-      <button id="btn-garage" class="cta alt2">🚗 Garage</button>
+      <div class="row-buttons">
+        <button id="btn-garage" class="cta alt2 half">🚗 Garage</button>
+        <button id="btn-upgrades" class="cta alt3 half">⚡ Upgrades</button>
+      </div>
     </div>
+    <div id="menu-shields" class="best-line hidden"></div>
     <div class="best-line">Endless best: <b id="menu-best">0</b> · ⭐ <b id="menu-stars">0</b>/60</div>
     <p class="hint">Swipe ← → to change lanes<br /><small>Desktop: arrow keys / A D</small></p>
   </div>
@@ -106,6 +111,27 @@
         <div class="stat"><span>Size</span><div class="bar"><i id="g-size"></i></div></div>
       </div>
       <button id="g-action" class="cta">Select</button>
+    </div>
+  </div>
+
+  <!-- ===== Upgrades shop ===== -->
+  <div id="upgrades" class="screen panel-screen hidden">
+    <div class="topbar">
+      <button class="back-btn" data-back>‹</button>
+      <h2>Upgrades</h2>
+      <div class="wallet small"><span class="coin-icon"></span><b class="wallet-val">0</b></div>
+    </div>
+    <p class="up-intro">Power-ups appear on the road. Upgrade them to make them last longer.</p>
+    <div id="upgrade-list" class="level-list"></div>
+  </div>
+
+  <!-- ===== Daily reward ===== -->
+  <div id="daily" class="modal hidden">
+    <div class="modal-card">
+      <h3>🎁 Daily Reward</h3>
+      <div id="daily-sub" class="daily-sub"></div>
+      <div id="daily-grid" class="daily-grid"></div>
+      <button id="daily-claim" class="cta small">Claim</button>
     </div>
   </div>
 

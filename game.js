@@ -153,6 +153,23 @@ const CARS = [
 const carById = (id) => CARS.find((c) => c.id === id) || CARS[0];
 
 /* =========================================================
+   Power-ups, upgrades and daily rewards (data)
+   ========================================================= */
+const POWERUPS = {
+  magnet: { name: 'Magnet', icon: '🧲', color: 0xff3b5c, css: '#ff3b5c', base: 6, step: 1.5, desc: 'Pulls nearby coins to your car' },
+  shield: { name: 'Shield', icon: '🛡️', color: 0x3a86ff, css: '#3a86ff', base: 8, step: 2, desc: 'Blocks one crash while it is active' },
+  double: { name: 'Double Coins', icon: '💰', color: 0x2fbf71, css: '#2fbf71', base: 6, step: 1.5, desc: 'Every coin counts ×2' },
+};
+const PU_KEYS = Object.keys(POWERUPS);
+const MAX_UPGRADE = 5;
+const UPGRADE_COSTS = [80, 160, 300, 500, 800]; // cost of upgrade level 1..5
+const puDurationAt = (key, lvl) => POWERUPS[key].base + POWERUPS[key].step * lvl;
+const puDuration = (key) => puDurationAt(key, save.upgrades[key]);
+
+// Day 1..7 of a login streak. Day 7 also grants a free shield.
+const DAILY_REWARDS = [25, 50, 75, 100, 150, 200, 300];
+
+/* =========================================================
    Save data (localStorage)
    ========================================================= */
 const SAVE_KEY = 'laneRush.save.v1';
@@ -178,6 +195,9 @@ function loadSave() {
     owned: ['rookie'],
     selected: 'rookie',
     best: parseInt(safeGet('laneRush.best') || '0', 10) || 0,
+    upgrades: { magnet: 0, shield: 0, double: 0 },
+    daily: { last: '', streak: 0 }, // last claimed local date (YYYY-MM-DD) and streak day (1..7)
+    freeShields: 0,
   };
   try {
     const raw = JSON.parse(safeGet(SAVE_KEY) || 'null');
@@ -188,6 +208,13 @@ function loadSave() {
       if (!s.owned.includes(s.selected)) s.selected = 'rookie';
       s.unlocked = Math.max(0, Math.min(LEVELS.length - 1, s.unlocked | 0));
       s.coins = Math.max(0, s.coins | 0);
+      // Fields added later: older saves simply get the defaults.
+      const up = raw.upgrades && typeof raw.upgrades === 'object' ? raw.upgrades : {};
+      s.upgrades = {};
+      for (const k of PU_KEYS) s.upgrades[k] = Math.max(0, Math.min(MAX_UPGRADE, up[k] | 0));
+      const dl = raw.daily && typeof raw.daily === 'object' ? raw.daily : {};
+      s.daily = { last: typeof dl.last === 'string' ? dl.last : '', streak: Math.max(0, Math.min(7, dl.streak | 0)) };
+      s.freeShields = Math.max(0, s.freeShields | 0);
       return s;
     }
   } catch (e) {
@@ -226,6 +253,7 @@ const ui = {
     menu: $('menu'),
     levels: $('levels'),
     garage: $('garage'),
+    upgrades: $('upgrades'),
     over: $('over'),
     complete: $('complete'),
     paused: $('paused'),
@@ -243,6 +271,9 @@ function refreshWallets() {
   document.querySelectorAll('.wallet-val').forEach((el) => (el.textContent = save.coins));
   $('menu-best').textContent = save.best;
   $('menu-stars').textContent = totalStars();
+  const fs = $('menu-shields');
+  fs.classList.toggle('hidden', save.freeShields <= 0);
+  fs.textContent = `🛡️ Free shield ready${save.freeShields > 1 ? ' ×' + save.freeShields : ''} for your next run`;
 }
 let toastTimer = 0;
 function toast(msg) {
@@ -365,6 +396,20 @@ const Sound = (() => {
     tone(880 * Math.pow(1.25, i), ctx.currentTime, 0.2, 'triangle', 0.1);
   }
 
+  function power() {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, t + i * 0.045, 0.14, 'sawtooth', 0.05));
+    tone(1568, t + 0.22, 0.25, 'triangle', 0.08);
+  }
+
+  function powerEnd() {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    tone(660, t, 0.1, 'triangle', 0.06);
+    tone(440, t + 0.09, 0.16, 'triangle', 0.06);
+  }
+
   function buy() {
     if (!ctx) return;
     const t = ctx.currentTime;
@@ -413,7 +458,7 @@ const Sound = (() => {
     e.o2.stop(t + 0.5);
   }
 
-  return { init, setMuted, coin, swoosh, click, crash, shield, fanfare, star, buy, engineStart, engineUpdate, engineStop };
+  return { init, setMuted, coin, swoosh, click, crash, shield, fanfare, star, buy, power, powerEnd, engineStart, engineUpdate, engineStop };
 })();
 
 /* =========================================================
@@ -1225,6 +1270,68 @@ function updateParticles(dt, worldDz) {
 }
 
 /* =========================================================
+   Power-up pickups + shield glow
+   ========================================================= */
+const puGeos = {
+  magnet: merge([
+    part(box(0.3, 0.6, 0.3), 0xff3b5c, -0.32, 0.0, 0),
+    part(box(0.3, 0.6, 0.3), 0xff3b5c, 0.32, 0.0, 0),
+    part(box(0.94, 0.3, 0.3), 0xff3b5c, 0, -0.42, 0),
+    part(box(0.3, 0.22, 0.3), 0xffffff, -0.32, 0.41, 0),
+    part(box(0.3, 0.22, 0.3), 0xffffff, 0.32, 0.41, 0),
+  ]),
+  shield: (() => {
+    const o = new THREE.OctahedronGeometry(0.72, 0);
+    o.scale(1, 1.1, 0.45);
+    return merge([part(o, 0x3a86ff), part(box(0.16, 0.7, 0.72), 0xffffff), part(box(0.6, 0.16, 0.72), 0xffffff, 0, 0.1, 0)]);
+  })(),
+  double: merge([
+    part(cyl(0.42, 0.42, 0.14, 12), 0xffc300, -0.2, 0.14, 0.1, Math.PI / 2),
+    part(cyl(0.28, 0.28, 0.16, 12), 0xffe066, -0.2, 0.14, 0.1, Math.PI / 2),
+    part(cyl(0.42, 0.42, 0.14, 12), 0xffc300, 0.2, -0.14, -0.1, Math.PI / 2),
+    part(cyl(0.28, 0.28, 0.16, 12), 0xffe066, 0.2, -0.14, -0.1, Math.PI / 2),
+  ]),
+};
+const puBubbleGeo = new THREE.IcosahedronGeometry(1.05, 1);
+const puBubbleMats = {};
+for (const k of PU_KEYS) {
+  puBubbleMats[k] = new THREE.MeshBasicMaterial({ color: POWERUPS[k].color, transparent: true, opacity: 0.32, depthWrite: false });
+}
+const pickups = [];
+for (let i = 0; i < 3; i++) {
+  const group = new THREE.Group();
+  const icon = new THREE.Mesh(puGeos.magnet, vcBasic);
+  const bubble = new THREE.Mesh(puBubbleGeo, puBubbleMats.magnet);
+  group.add(icon, bubble);
+  group.visible = false;
+  scene.add(group);
+  pickups.push({ group, icon, bubble, active: false, type: 'magnet' });
+}
+function spawnPickup(type, lane, z) {
+  const pk = pickups.find((q) => !q.active);
+  if (!pk) return false;
+  pk.active = true;
+  pk.type = type;
+  pk.icon.geometry = puGeos[type];
+  pk.bubble.material = puBubbleMats[type];
+  pk.group.position.set(LANES[lane], 1.25, z);
+  pk.group.visible = true;
+  return true;
+}
+
+const shieldGlow = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(1, 1),
+  new THREE.MeshBasicMaterial({ color: 0x4cc9f0, transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })
+);
+// bright wireframe shell so it reads as a force field in every theme
+shieldGlow.add(
+  new THREE.Mesh(shieldGlow.geometry, new THREE.MeshBasicMaterial({ color: 0xbdf0ff, wireframe: true, transparent: true, opacity: 0.7, depthWrite: false, fog: false }))
+);
+shieldGlow.position.y = 0.8;
+shieldGlow.visible = false;
+player.add(shieldGlow);
+
+/* =========================================================
    Game state
    ========================================================= */
 const state = {
@@ -1243,7 +1350,10 @@ const state = {
   timer: 0,
   slow: 1,
   shake: 0,
-  shield: 0,
+  shield: 0, // permanent shield charges (Titan armor, daily free shield)
+  fx: { magnet: 0, shield: 0, double: 0 }, // seconds left on each power-up
+  fxMax: { magnet: 1, shield: 1, double: 1 },
+  puTimer: 0,
   invuln: 0,
   shownScore: -1,
   shownCoins: -1,
@@ -1261,6 +1371,46 @@ function clearWorld() {
   }
   for (const c of coins) c.active = false;
   for (const p of parts) p.life = 0;
+  for (const pk of pickups) {
+    pk.active = false;
+    pk.group.visible = false;
+  }
+  for (const k of PU_KEYS) state.fx[k] = 0;
+  shieldGlow.visible = false;
+  refreshPowerHUD();
+}
+
+/* ---------- Power-up effects ---------- */
+const puEls = {};
+for (const k of PU_KEYS) {
+  const el = document.createElement('div');
+  el.className = 'pu hidden';
+  el.style.setProperty('--pu', POWERUPS[k].css);
+  el.innerHTML = `<span class="pu-icon">${POWERUPS[k].icon}</span><div class="pu-bar"><i></i></div>`;
+  $('powerups').appendChild(el);
+  puEls[k] = { el, fill: el.querySelector('i'), shown: false };
+}
+function refreshPowerHUD() {
+  for (const k of PU_KEYS) {
+    const on = state.fx[k] > 0;
+    const e = puEls[k];
+    if (on !== e.shown) {
+      e.shown = on;
+      e.el.classList.toggle('hidden', !on);
+    }
+    if (on) {
+      e.fill.style.transform = `scaleX(${Math.min(1, state.fx[k] / state.fxMax[k])})`;
+      e.el.classList.toggle('ending', state.fx[k] < 2);
+    }
+  }
+}
+function activatePower(type) {
+  const d = puDuration(type);
+  state.fx[type] = d;
+  state.fxMax[type] = d;
+  Sound.power();
+  burst(player.position.x, 1.4, player.position.z - 1, 18, [POWERUPS[type].color, 0xffffff], 7, 1);
+  refreshPowerHUD();
 }
 
 function resetPlayerPose() {
@@ -1286,6 +1436,100 @@ function goMenu() {
   applyTheme(LEVELS[save.unlocked].theme);
   showHUD(false);
   showScreen('menu');
+  checkDaily();
+}
+
+/* ---------- Upgrades shop ---------- */
+function openUpgrades() {
+  state.mode = 'upgrades';
+  showHUD(false);
+  showScreen('upgrades');
+  renderUpgrades();
+}
+function renderUpgrades() {
+  const list = $('upgrade-list');
+  list.innerHTML = '';
+  for (const k of PU_KEYS) {
+    const pu = POWERUPS[k];
+    const lvl = save.upgrades[k];
+    const maxed = lvl >= MAX_UPGRADE;
+    const card = document.createElement('div');
+    card.className = 'up-card';
+    card.style.setProperty('--pu', pu.css);
+    const pips = Array.from({ length: MAX_UPGRADE }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('');
+    const dur = puDurationAt(k, lvl).toFixed(1).replace('.0', '');
+    const next = maxed ? '' : ` <span class="up-next">→ ${puDurationAt(k, lvl + 1).toFixed(1).replace('.0', '')}s</span>`;
+    card.innerHTML = `
+      <div class="up-icon">${pu.icon}</div>
+      <div class="up-body">
+        <div class="up-name">${pu.name} <small>Lv ${lvl}/${MAX_UPGRADE}</small></div>
+        <div class="up-desc">${pu.desc}</div>
+        <div class="up-pips">${pips}</div>
+        <div class="up-dur">Lasts ${dur}s${next}</div>
+      </div>`;
+    const btn = document.createElement('button');
+    btn.className = 'cta small up-buy';
+    if (maxed) {
+      btn.textContent = 'MAX';
+      btn.disabled = true;
+    } else {
+      const cost = UPGRADE_COSTS[lvl];
+      btn.innerHTML = `<span class="coin-icon"></span>${cost}`;
+      btn.addEventListener('click', () => {
+        Sound.init();
+        if (save.coins < cost) {
+          Sound.click();
+          toast(`Need ${cost - save.coins} more coins`);
+          return;
+        }
+        save.coins -= cost;
+        save.upgrades[k] = lvl + 1;
+        persist();
+        Sound.buy();
+        refreshWallets();
+        renderUpgrades();
+        toast(`${pu.icon} ${pu.name} upgraded to Lv ${lvl + 1}!`);
+      });
+    }
+    card.appendChild(btn);
+    list.appendChild(card);
+  }
+}
+
+/* ---------- Daily reward ---------- */
+function dateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+let dailyDay = 0; // streak day waiting to be claimed (0 = nothing pending)
+function checkDaily() {
+  const now = new Date();
+  const today = dateStr(now);
+  if (save.daily.last === today) return;
+  const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const consecutive = save.daily.last === dateStr(y) && save.daily.streak >= 1;
+  dailyDay = consecutive ? (save.daily.streak % 7) + 1 : 1; // after day 7 the cycle restarts
+  $('daily-sub').textContent = consecutive ? `Day ${dailyDay} in a row. Keep it going!` : 'Come back every day for bigger rewards!';
+  $('daily-grid').innerHTML = DAILY_REWARDS.map((coinsN, i) => {
+    const d = i + 1;
+    const cls = d < dailyDay ? 'done' : d === dailyDay ? 'today' : '';
+    return `<div class="day ${cls}${d === 7 ? ' big' : ''}"><span class="day-n">${d < dailyDay ? '✓' : 'Day ' + d}</span><span class="day-r"><span class="coin-icon"></span>${coinsN}</span>${d === 7 ? '<span class="day-x">+ 🛡️ free shield</span>' : ''}</div>`;
+  }).join('');
+  $('daily-claim').textContent = `Claim ${DAILY_REWARDS[dailyDay - 1]} coins${dailyDay === 7 ? ' + 🛡️' : ''}`;
+  $('daily').classList.remove('hidden');
+}
+function claimDaily() {
+  if (!dailyDay) return;
+  const reward = DAILY_REWARDS[dailyDay - 1];
+  save.coins += reward;
+  if (dailyDay === 7) save.freeShields += 1;
+  save.daily = { last: dateStr(new Date()), streak: dailyDay };
+  persist();
+  Sound.buy();
+  burst(0, 2, -2, 50, CONFETTI, 9, 1.2);
+  toast(dailyDay === 7 ? `+${reward} coins and a free shield!` : `+${reward} coins!`);
+  dailyDay = 0;
+  $('daily').classList.add('hidden');
+  refreshWallets();
 }
 
 function buildLevelList() {
@@ -1442,11 +1686,20 @@ function startRun(level) {
     slow: 1,
     shake: 0,
     shield: state.car.shield ? 1 : 0,
+    puTimer: 5 + Math.random() * 4,
     invuln: 0,
     shownScore: -1,
     shownCoins: -1,
     hitCar: null,
   });
+  if (save.freeShields > 0) {
+    // daily reward: a free shield that lasts until it is hit
+    save.freeShields -= 1;
+    persist();
+    state.shield += 1;
+    toast('🛡️ Free shield active!');
+  }
+  shieldGlow.scale.set(state.car.halfW + 0.95, 1.45, state.car.halfL + 0.9);
   showScreen(null);
   showHUD(true);
   ui.score.textContent = '0';
@@ -1497,10 +1750,13 @@ function crash(car) {
 }
 
 function absorbHit(car) {
-  state.shield = 0;
+  // The timed power-up shield is used up first, then permanent charges.
+  if (state.fx.shield > 0) state.fx.shield = 0;
+  else state.shield -= 1;
+  refreshPowerHUD();
   state.invuln = 1.2;
   state.shake = 0.5;
-  ui.shield.classList.add('hidden');
+  ui.shield.classList.toggle('hidden', state.shield <= 0);
   Sound.shield();
   burst(car.mesh.position.x, 1.2, car.mesh.position.z, 40, [0x3a86ff, 0xffffff, 0x9bf6ff, 0x333333], 10, 1.3);
   car.active = false;
@@ -1543,6 +1799,10 @@ function completeLevel() {
   state.mode = 'completing';
   state.timer = 1.0;
   ui.pause.classList.add('hidden');
+  for (const pk of pickups) {
+    pk.active = false;
+    pk.group.visible = false;
+  }
   for (const c of coins) {
     if (c.active && c.z > -70) burst(c.x, 1, c.z, 4, [0xffd60a, 0xfff3b0], 4, 0.7);
     c.active = false;
@@ -1669,11 +1929,20 @@ function spawnRow() {
   const interval = rowInterval();
   const gap = interval * (worldSpeed() + TRAFFIC_OWN_SPEED);
   const coinChance = state.level && state.level.type === 'coins' ? 0.8 : 0.6;
-  if (Math.random() < coinChance) {
-    const freeLanes = [0, 1, 2].filter((l) => free[l]);
-    const lane = freeLanes[Math.floor(Math.random() * freeLanes.length)];
-    const count = Math.min(6, Math.floor((gap - 10) / 3) + 1);
-    for (let i = 0; i < count; i++) spawnCoin(lane, SPAWN_Z - 4.5 - i * 3);
+  const freeLanes = [0, 1, 2].filter((l) => free[l]);
+  const lane = freeLanes[Math.floor(Math.random() * freeLanes.length)];
+  const count = Math.min(6, Math.floor((gap - 10) / 3) + 1);
+  // Now and then a power-up takes the first slot of the coin line.
+  let first = 0;
+  if (state.puTimer <= 0 && count >= 1) {
+    const type = PU_KEYS[Math.floor(Math.random() * PU_KEYS.length)];
+    if (spawnPickup(type, lane, SPAWN_Z - 4.5)) {
+      state.puTimer = 9 + Math.random() * 7;
+      first = 1;
+    }
+  }
+  if (first || Math.random() < coinChance) {
+    for (let i = first; i < count; i++) spawnCoin(lane, SPAWN_Z - 4.5 - i * 3);
   }
   return interval;
 }
@@ -1806,6 +2075,11 @@ on('li-play', () => {
   if (lvl) startRun(lvl);
 });
 on('li-change', () => openGarage('levels'));
+on('btn-upgrades', () => {
+  Sound.click();
+  openUpgrades();
+});
+on('daily-claim', claimDaily);
 on('g-prev', () => cycleGarage(-1));
 on('g-next', () => cycleGarage(1));
 on('g-action', garageAction);
@@ -1881,7 +2155,7 @@ function update(dt) {
     ws = worldSpeed();
     state.distance += ws * dt;
     Sound.engineUpdate(ws);
-  } else if (mode === 'menu' || mode === 'levels') {
+  } else if (mode === 'menu' || mode === 'levels' || mode === 'upgrades') {
     ws = 14;
   } else if (mode === 'garage') {
     ws = 0;
@@ -1915,7 +2189,7 @@ function update(dt) {
     garageSpin += dt * 0.7;
     player.rotation.set(0, garageSpin, 0);
     player.position.set(0, CARS[garageIndex].id === 'comet' ? 0.15 + Math.sin(garageSpin * 3) * 0.08 : 0, 0);
-  } else if (mode === 'playing' || mode === 'menu' || mode === 'levels') {
+  } else if (mode === 'playing' || mode === 'menu' || mode === 'levels' || mode === 'upgrades') {
     const prevX = state.x;
     const handling = mode === 'playing' ? car.handling : 13;
     state.x += (LANES[state.lane] - state.x) * Math.min(1, dt * handling);
@@ -1937,6 +2211,8 @@ function update(dt) {
   } else {
     player.visible = true;
   }
+
+  const spin = performance.now() * 0.004;
 
   // --- Traffic ---
   const halfW = car.halfW;
@@ -1961,26 +2237,73 @@ function update(dt) {
       const dx = Math.abs(m.position.x - state.x);
       const dz = Math.abs(m.position.z - player.position.z);
       if (dx < c.halfW + halfW - 0.1 && dz < c.halfL + halfL - 0.15) {
-        if (state.shield > 0) absorbHit(c);
+        if (state.shield > 0 || state.fx.shield > 0) absorbHit(c);
         else crash(c);
       }
     }
   }
 
   // --- Coins ---
-  const spin = performance.now() * 0.004;
-  const magnet = mode === 'playing' && car.magnet;
+  // --- Power-ups: timers, pickups, shield glow ---
+  if (mode === 'playing') {
+    state.puTimer -= dt;
+    let any = false;
+    for (const k of PU_KEYS) {
+      if (state.fx[k] > 0) {
+        any = true;
+        state.fx[k] -= dt;
+        if (state.fx[k] <= 0) {
+          state.fx[k] = 0;
+          Sound.powerEnd();
+        }
+      }
+    }
+    if (any) refreshPowerHUD();
+  }
+  for (const pk of pickups) {
+    if (!pk.active) continue;
+    const g = pk.group;
+    g.position.z += trafficDz;
+    g.position.y = 1.25 + Math.sin(spin * 1.3) * 0.15;
+    pk.icon.rotation.y = spin * 0.8;
+    const pulse = 1 + Math.sin(spin * 2.5) * 0.08;
+    pk.bubble.scale.set(pulse, pulse, pulse);
+    if (g.position.z > DESPAWN_Z) {
+      pk.active = false;
+      g.visible = false;
+    } else if (mode === 'playing' && Math.abs(g.position.x - state.x) < 1.4 && Math.abs(g.position.z - player.position.z) < halfL + 0.3) {
+      pk.active = false;
+      g.visible = false;
+      activatePower(pk.type);
+    }
+  }
+  const shielded = (mode === 'playing' || mode === 'paused') && (state.shield > 0 || state.fx.shield > 0);
+  if (shielded) {
+    // blink when only the timed shield is left and it is about to run out
+    const ending = state.shield <= 0 && state.fx.shield < 2;
+    shieldGlow.visible = !ending || Math.floor(state.fx.shield * 8) % 2 === 0;
+    shieldGlow.material.opacity = 0.26 + Math.sin(spin * 2) * 0.08;
+    shieldGlow.rotation.y = -player.rotation.y + spin * 0.3;
+  } else if (shieldGlow.visible) {
+    shieldGlow.visible = false;
+  }
+
+  const fxMagnet = mode === 'playing' && state.fx.magnet > 0;
+  const magnet = fxMagnet || (mode === 'playing' && car.magnet);
+  const magRange = fxMagnet ? 7 : 4.5; // the power-up reaches every lane
+  const magDepth = fxMagnet ? -24 : -16;
+  const coinValue = state.fx.double > 0 ? 2 : 1;
   for (let i = 0; i < MAX_COINS; i++) {
     const c = coins[i];
     if (c.active) {
       c.z += trafficDz;
-      if (magnet && c.z > -16 && c.z < 3 && Math.abs(c.x - state.x) < 4.5) {
+      if (magnet && c.z > magDepth && c.z < 3 && Math.abs(c.x - state.x) < magRange) {
         c.x += (state.x - c.x) * Math.min(1, dt * 7);
       }
       if (c.z > DESPAWN_Z) c.active = false;
       else if (mode === 'playing' && Math.abs(c.x - state.x) < 1.3 && Math.abs(c.z - player.position.z) < halfL - 0.25) {
         c.active = false;
-        state.coins++;
+        state.coins += coinValue;
         Sound.coin();
         burst(c.x, 1.0, c.z, 10, [0xffd60a, 0xfff3b0, 0xffb703], 5, 0.8);
       }
@@ -2086,7 +2409,7 @@ function loop() {
 
 // Boot
 window.__laneRushBooted = true;
-window.__laneRush = { state, save, LEVELS, CARS, traffic }; // handy for debugging
+window.__laneRush = { state, save, LEVELS, CARS, traffic, pickups, spawnPickup }; // handy for debugging
 goMenu();
 ui.loading.classList.add('hidden');
 loop();

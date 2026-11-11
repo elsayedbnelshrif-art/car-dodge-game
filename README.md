@@ -23,7 +23,22 @@ A bright, low-poly 3D endless car game for mobile phones, built with [Three.js](
 | Phantom | Level 13 | 1400 | Top speed and handling |
 | Comet | Level 17 | 2500 | Hover car with a coin magnet |
 
-Coins, stars, unlocked levels, owned cars and the selected car are saved in `localStorage`.
+## Power-ups
+Power-ups float on the road in a coloured bubble. While one is active, an icon with a countdown bar shows under the HUD.
+
+| Power-up | Effect | Duration (Lv 0 → Lv 5) |
+| --- | --- | --- |
+| 🧲 Magnet | Pulls coins from every lane to the car | 6s → 13.5s |
+| 🛡️ Shield | Blocks one crash while active (force field around the car) | 8s → 18s |
+| 💰 Double Coins | Every coin counts ×2 | 6s → 13.5s |
+
+**Upgrades** (main menu): each power-up has 5 upgrade levels that make it last longer, costing 80, 160, 300, 500 and 800 coins.
+
+## Daily reward
+Open the game once a day to claim 25, 50, 75, 100, 150, 200 and then 300 coins plus a free shield on day 7.
+Missing a day resets the streak to day 1; after day 7 the cycle starts again.
+
+Coins, stars, unlocked levels, owned cars, the selected car, power-up upgrades and the daily streak are saved in `localStorage`.
 
 ## Files
 | File | Purpose |
