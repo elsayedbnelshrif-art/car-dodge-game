@@ -87,37 +87,160 @@ const THEMES = {
     clouds: true,
   },
 };
-const THEME_KEYS = ['city', 'desert', 'night', 'snow'];
+Object.assign(THEMES, {
+  rain: {
+    name: 'Rain',
+    emoji: '🌧️',
+    sky: 0x8496a8,
+    fogNear: 40,
+    fogFar: 150,
+    ground: 0x4f8a5b,
+    road: 0x2b3038,
+    curbA: 0xd94a5c,
+    curbB: 0xdfe6ee,
+    hemi: [0xdfe8f2, 0x5b7a66, 1.4],
+    sun: [0xdde6f0, 0.9],
+    clouds: true,
+  },
+  mountain: {
+    name: 'Mountain',
+    emoji: '⛰️',
+    sky: 0xa6d8ff,
+    fogNear: 55,
+    fogFar: 170,
+    ground: 0x6fae5c,
+    road: 0x444a52,
+    curbA: 0xffffff,
+    curbB: 0xff3b5c,
+    hemi: [0xffffff, 0x6f8f5f, 1.6],
+    sun: [0xffffff, 1.9],
+    clouds: true,
+  },
+  tunnel: {
+    name: 'Tunnel',
+    emoji: '🚇',
+    sky: 0xbfe3ff,
+    fogNear: 55,
+    fogFar: 165,
+    ground: 0xb9a27a,
+    road: 0x3f434c,
+    curbA: 0xffd60a,
+    curbB: 0x2b2b2b,
+    hemi: [0xffffff, 0xa08f6e, 1.6],
+    sun: [0xffffff, 1.8],
+    clouds: true,
+  },
+  highway: {
+    name: 'Highway',
+    emoji: '🛣️',
+    sky: 0x7fc8ff,
+    fogNear: 60,
+    fogFar: 175,
+    ground: 0x9fc45e,
+    road: 0x474b55,
+    curbA: 0xe9ecef,
+    curbB: 0xadb5bd,
+    hemi: [0xffffff, 0x8fae5c, 1.65],
+    sun: [0xffffff, 1.9],
+    clouds: true,
+  },
+});
+THEMES.city.css = '#4895ef';
+THEMES.desert.css = '#e76f51';
+THEMES.night.css = '#3a0ca3';
+THEMES.snow.css = '#8eaccd';
+THEMES.rain.css = '#5c7285';
+THEMES.mountain.css = '#4f8a5b';
+THEMES.tunnel.css = '#6c584c';
+THEMES.highway.css = '#495057';
+const THEME_KEYS = Object.keys(THEMES);
+
+// Worlds in play order. The first four keep their original 5 levels; later worlds have 10.
+// After the last one, "Beyond" generates levels forever.
+const WORLDS = [
+  { key: 'city', start: 0, count: 5, fx: [] },
+  { key: 'desert', start: 5, count: 5, fx: [] },
+  { key: 'night', start: 10, count: 5, fx: [] },
+  { key: 'snow', start: 15, count: 5, fx: [] },
+  { key: 'rain', start: 20, count: 10, fx: ['rain'], blurb: 'Wet road: the car slides when you change lanes' },
+  { key: 'mountain', start: 30, count: 10, fx: ['hills'], blurb: 'Winding roads that climb and dive' },
+  { key: 'tunnel', start: 40, count: 10, fx: ['tunnels'], blurb: 'Sudden dark tunnels and blinding exits' },
+  { key: 'highway', start: 50, count: 10, fx: ['trucks'], blurb: 'Big trucks that change lanes' },
+  { key: 'beyond', start: 60, count: Infinity, fx: [], name: 'Beyond', emoji: '♾️', blurb: 'Endless levels that mix every world and keep getting harder' },
+];
+const CAMPAIGN_LEVELS = 60;
+const BEYOND = WORLDS.length - 1;
+const worldIndexOf = (i) => (i >= CAMPAIGN_LEVELS ? BEYOND : WORLDS.findIndex((w) => i < w.start + w.count));
+const worldName = (w) => WORLDS[w].name || THEMES[WORLDS[w].key].name;
+const worldEmoji = (w) => WORLDS[w].emoji || THEMES[WORLDS[w].key].emoji;
+const FX_LABELS = { rain: '🌧️ Slippery', hills: '⛰️ Hills', tunnels: '🚇 Tunnels', trucks: '🚛 Lane-changing trucks', boss: '🚓 Police chase' };
 
 /* =========================================================
    Levels
    ========================================================= */
 const round50 = (v) => Math.round(v / 50) * 50;
-const LEVELS = Array.from({ length: 20 }, (_, i) => {
-  const d = i / 19;
-  const type = i % 5 === 1 || i % 5 === 3 ? 'coins' : 'distance';
-  const target = type === 'distance' ? round50(400 + i * 250) : 12 + i * 5;
+// Deterministic pseudo-random number in [0, 1) so generated levels are the same every time.
+function seeded(i, salt) {
+  const x = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+const BOSS_TARGETS = [1000, 1400, 1800, 2200];
+const levelCache = new Map();
+/** Level `i` (0-based). Levels 0..59 are the campaign; everything after is generated. */
+function getLevel(i) {
+  if (levelCache.has(i)) return levelCache.get(i);
+  const w = worldIndexOf(i);
+  const world = WORLDS[w];
+  const beyond = w === BEYOND;
+  const n = i - CAMPAIGN_LEVELS; // how deep into Beyond
+  // Difficulty: the first 20 levels are unchanged; new worlds restart a little easier
+  // (their mechanics add the challenge) and Beyond keeps creeping up.
+  const d = i < 20 ? i / 19 : beyond ? 1 + n * 0.02 : 0.55 + (0.45 * (i - 20)) / 39;
+  const pos = beyond ? n % 10 : i - world.start;
+  const last = beyond ? pos === 9 : pos === world.count - 1;
+  const type = last ? 'boss' : pos % 5 === 1 || pos % 5 === 3 ? 'coins' : 'distance';
+  const theme = beyond ? THEME_KEYS[Math.floor(seeded(i, 1) * THEME_KEYS.length)] : world.key;
+
+  const fx = { rain: false, hills: false, tunnels: false, trucks: false, boss: type === 'boss' };
+  if (beyond) {
+    // mix 1-3 mechanics from all worlds
+    const pool = ['rain', 'hills', 'tunnels', 'trucks'].sort((a, b) => seeded(i, a.length + a.charCodeAt(0)) - seeded(i, b.length + b.charCodeAt(0)));
+    const count = 1 + Math.floor(seeded(i, 2) * 2.4);
+    for (const k of pool.slice(0, count)) fx[k] = true;
+  } else {
+    for (const k of world.fx) fx[k] = true;
+  }
+  if (theme === 'rain') fx.rain = true;
+  if (theme === 'mountain') fx.hills = true;
+
+  let target;
+  if (type === 'boss') target = i < 20 ? BOSS_TARGETS[w] : beyond ? Math.min(6000, 3500 + n * 60) : 2400 + (w - 4) * 300;
+  else if (type === 'distance') target = i < 20 ? round50(400 + i * 250) : beyond ? Math.min(8000, round50(4000 + n * 100)) : round50(2400 + (i - 20) * 60);
+  else target = i < 20 ? 12 + i * 5 : beyond ? Math.min(220, 110 + n * 3) : 60 + (i - 20) * 2;
+
   const lvl = {
     index: i,
     num: i + 1,
-    theme: THEME_KEYS[Math.floor(i / 5)],
+    world: w,
+    theme,
     type,
     target,
+    fx,
     params: {
-      startSpeed: 18 + 12 * d,
-      speedGain: 0.3 + 0.3 * d,
-      maxSpeed: 42 + 24 * d,
-      intStart: 1.3 - 0.45 * d,
-      intMin: 0.8 - 0.25 * d,
-      intDecay: 0.006 + 0.004 * d,
-      dblBase: 0.05 + 0.3 * d,
-      dblGain: 0.004 + 0.004 * d,
-      dblMax: 0.25 + 0.35 * d,
+      startSpeed: 18 + 12 * Math.min(d, 1.3),
+      speedGain: 0.3 + 0.3 * Math.min(d, 1.2),
+      maxSpeed: Math.min(80, 42 + 24 * d),
+      intStart: Math.max(0.7, 1.3 - 0.45 * d),
+      intMin: Math.max(0.42, 0.8 - 0.25 * d),
+      intDecay: 0.006 + 0.004 * Math.min(d, 1.5),
+      dblBase: Math.min(0.45, 0.05 + 0.3 * d),
+      dblGain: 0.004 + 0.004 * Math.min(d, 1.5),
+      dblMax: Math.min(0.7, 0.25 + 0.35 * d),
     },
   };
-  if (lvl.theme === 'night') {
+  const p = lvl.params;
+  if (theme === 'night') {
     // Night is harder to read, so traffic is a little slower and sparser.
-    const p = lvl.params;
     p.startSpeed *= 0.92;
     p.speedGain *= 0.9;
     p.maxSpeed *= 0.9;
@@ -126,28 +249,65 @@ const LEVELS = Array.from({ length: 20 }, (_, i) => {
     p.dblBase *= 0.7;
     p.dblMax *= 0.75;
   }
-  if (type === 'distance') {
-    lvl.s2 = Math.round(target / 16); // coins for 2 stars
-    lvl.s3 = Math.round(target / 10); // coins for 3 stars
-  } else {
-    lvl.s2 = Math.round(target * 0.95); // seconds for 2 stars
-    lvl.s3 = Math.round(target * 0.7); // seconds for 3 stars
+  if (fx.boss) {
+    // The police car is the main threat: thin the traffic out.
+    p.intStart *= 1.35;
+    p.intMin *= 1.35;
+    p.dblBase = 0;
+    p.dblMax *= 0.3;
   }
+  if (fx.tunnels) {
+    p.intStart *= 1.1;
+    p.intMin *= 1.1;
+  }
+  if (type === 'coins') {
+    lvl.s2 = Math.round(target * 0.95); // seconds for the 2nd star
+    lvl.s3 = Math.round(target * 0.7); // seconds for the "fast" challenge
+  } else {
+    lvl.s2 = Math.round(target / (i < 20 ? 16 : 24)); // coins for the 2nd star
+  }
+  // 3rd star: a challenge, rotated so neighbouring levels differ.
+  const kinds = type === 'coins' ? ['fast', 'nearMiss', 'noPower'] : ['coinsPct', 'nearMiss', 'noPower'];
+  lvl.challenge = { kind: kinds[i % 3], n: Math.min(8, 3 + Math.floor(Math.min(d, 2) * 3)) };
+  levelCache.set(i, lvl);
   return lvl;
-});
+}
 
 function goalText(lvl) {
+  if (lvl.type === 'boss') return `Escape the police: ${lvl.target} m`;
   return lvl.type === 'distance' ? `Reach ${lvl.target} m` : `Collect ${lvl.target} coins`;
 }
-function starRules(lvl) {
-  if (lvl.type === 'distance') {
-    return ['Reach the goal', `…with ${lvl.s2}+ coins`, `…with ${lvl.s3}+ coins`];
+function challengeText(lvl) {
+  switch (lvl.challenge.kind) {
+    case 'fast':
+      return `Finish in under ${lvl.s3}s`;
+    case 'nearMiss':
+      return `Do ${lvl.challenge.n} near misses`;
+    case 'noPower':
+      return "Don't pick up any power-ups";
+    default:
+      return 'Collect at least 80% of the coins';
   }
-  return ['Collect them all', `…in under ${lvl.s2}s`, `…in under ${lvl.s3}s`];
 }
-function computeStars(lvl, coins, time) {
-  if (lvl.type === 'distance') return 1 + (coins >= lvl.s2 ? 1 : 0) + (coins >= lvl.s3 ? 1 : 0);
-  return 1 + (time <= lvl.s2 ? 1 : 0) + (time <= lvl.s3 ? 1 : 0);
+function challengeDone(lvl) {
+  switch (lvl.challenge.kind) {
+    case 'fast':
+      return state.elapsed <= lvl.s3;
+    case 'nearMiss':
+      return state.nearMisses >= lvl.challenge.n;
+    case 'noPower':
+      return state.powerUsed === 0;
+    default:
+      return state.coinsGot > 0 && state.coinsGot / (state.coinsGot + state.coinsMissed) >= 0.8;
+  }
+}
+/** The three star objectives, in order. */
+function starRules(lvl) {
+  const second = lvl.type === 'coins' ? `Finish in under ${lvl.s2}s` : `Collect ${lvl.s2}+ coins`;
+  return [lvl.type === 'boss' ? 'Reach the finish line' : 'Reach the goal', second, challengeText(lvl)];
+}
+function secondStarDone(lvl) {
+  return lvl.type === 'coins' ? state.elapsed <= lvl.s2 : state.coins >= lvl.s2;
 }
 
 /* =========================================================
@@ -161,6 +321,11 @@ const CARS = [
   { id: 'phantom', name: 'Phantom', unlock: 13, price: 1400, speedMul: 1.2, handling: 18, halfW: 0.78, halfL: 1.85, bars: [5, 5, 3], perk: 'Supercar: blazing speed, razor handling' },
   { id: 'comet', name: 'Comet', unlock: 17, price: 2500, speedMul: 1.25, handling: 19, halfW: 0.72, halfL: 1.7, bars: [5, 5, 2], perk: '🧲 Hover tech: built-in coin magnet', magnet: true },
 ];
+// Special cars: free, but only once you have earned enough stars in total.
+CARS.push(
+  { id: 'aurora', name: 'Aurora', stars: 40, price: 0, speedMul: 1.15, handling: 20, halfW: 0.72, halfL: 1.75, bars: [4, 5, 2], perk: '✨ Near misses pay double', nearMissMul: 2 },
+  { id: 'legend', name: 'Legend', stars: 100, price: 0, speedMul: 1.2, handling: 20, halfW: 0.78, halfL: 1.9, bars: [5, 5, 3], perk: '👑 Coin magnet and armor built in', magnet: true, shield: true }
+);
 const carById = (id) => CARS.find((c) => c.id === id) || CARS[0];
 
 /* =========================================================
@@ -214,7 +379,7 @@ function loadSave() {
   const def = {
     coins: 0,
     unlocked: 0, // highest unlocked level index
-    stars: Array(LEVELS.length).fill(0),
+    stars: Array(CAMPAIGN_LEVELS).fill(0),
     owned: ['rookie'],
     selected: 'rookie',
     best: parseInt(safeGet('laneRush.best') || '0', 10) || 0,
@@ -235,10 +400,14 @@ function loadSave() {
     const raw = JSON.parse(safeGet(SAVE_KEY) || 'null');
     if (raw && typeof raw === 'object') {
       const s = Object.assign(def, raw);
-      s.stars = LEVELS.map((_, i) => Math.max(0, Math.min(3, (raw.stars && raw.stars[i]) | 0)));
+      // Stars are a growing list: 60 campaign levels plus however far the player got in Beyond.
+      const rs = Array.isArray(raw.stars) ? raw.stars : [];
+      s.stars = Array.from({ length: Math.max(CAMPAIGN_LEVELS, Math.min(rs.length, 5000)) }, (_, i) => Math.max(0, Math.min(3, rs[i] | 0)));
       if (!Array.isArray(s.owned) || !s.owned.includes('rookie')) s.owned = ['rookie', ...(Array.isArray(s.owned) ? s.owned : [])];
       if (!s.owned.includes(s.selected)) s.selected = 'rookie';
-      s.unlocked = Math.max(0, Math.min(LEVELS.length - 1, s.unlocked | 0));
+      s.unlocked = Math.max(0, Math.min(4999, s.unlocked | 0));
+      // Earlier versions stopped at level 20: anyone who finished their last level moves on.
+      while (s.stars[s.unlocked] > 0) s.unlocked++;
       s.coins = Math.max(0, s.coins | 0);
       // Fields added later: older saves simply get the defaults.
       const up = raw.upgrades && typeof raw.upgrades === 'object' ? raw.upgrades : {};
@@ -284,7 +453,7 @@ function vibrate(pattern, minGap = 0) {
   }
 }
 const totalStars = () => save.stars.reduce((a, b) => a + b, 0);
-const carUnlocked = (car) => save.unlocked >= car.unlock - 1;
+const carUnlocked = (car) => (car.stars ? totalStars() >= car.stars : save.unlocked >= car.unlock - 1);
 
 /* =========================================================
    DOM
@@ -306,6 +475,7 @@ const ui = {
   toast: $('toast'),
   screens: {
     menu: $('menu'),
+    worlds: $('worlds'),
     levels: $('levels'),
     garage: $('garage'),
     upgrades: $('upgrades'),
@@ -544,6 +714,11 @@ const Sound = (() => {
     tone(1760, t + 0.1, 0.16, 'square', 0.06);
   }
 
+  function siren(high, urgent) {
+    if (!ctx) return;
+    tone(high ? 960 : 720, ctx.currentTime, urgent ? 0.14 : 0.36, 'square', urgent ? 0.05 : 0.022);
+  }
+
   function power() {
     if (!ctx) return;
     const t = ctx.currentTime;
@@ -606,7 +781,7 @@ const Sound = (() => {
     e.o2.stop(t + 0.5);
   }
 
-  return { init, applySettings, musicStart, musicStop, nearMiss, coin, swoosh, click, crash, shield, fanfare, star, buy, power, powerEnd, engineStart, engineUpdate, engineStop };
+  return { init, siren, applySettings, musicStart, musicStop, nearMiss, coin, swoosh, click, crash, shield, fanfare, star, buy, power, powerEnd, engineStart, engineUpdate, engineStop };
 })();
 
 /* =========================================================
@@ -619,6 +794,19 @@ renderer.setPixelRatio(pixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
+
+// Curved world: every material bends geometry sideways / up-down with the square of its
+// distance from the camera. Gameplay stays on a straight road; only the picture curves.
+const bendUniform = { value: new THREE.Vector2(0, 0) };
+const bendTarget = new THREE.Vector2(0, 0);
+THREE.ShaderChunk.common = 'uniform vec2 uBend;\n' + THREE.ShaderChunk.common;
+THREE.ShaderChunk.project_vertex = THREE.ShaderChunk.project_vertex.replace(
+  'gl_Position = projectionMatrix * mvPosition;',
+  'mvPosition.xy += uBend * ( mvPosition.z * mvPosition.z );\n\tgl_Position = projectionMatrix * mvPosition;'
+);
+THREE.Material.prototype.onBeforeCompile = function (shader) {
+  shader.uniforms.uBend = bendUniform;
+};
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(THEMES.city.sky);
@@ -885,6 +1073,44 @@ const PLAYER_BUILDERS = {
     return merge(p);
   },
 };
+PLAYER_BUILDERS.aurora = () => {
+  const p = [];
+  const body = 0x00d4c8;
+  p.push(part(box(1.9, 0.02, 4.0), ROAD_SHADOW, 0, 0.015, 0));
+  p.push(part(box(1.6, 0.42, 3.7), body, 0, 0.52, 0));
+  p.push(part(box(1.2, 0.2, 1.3), body, 0, 0.6, -2.2)); // pointed nose
+  p.push(part(box(1.25, 0.36, 1.5), GLASS, 0, 0.9, 0.2));
+  p.push(part(box(1.3, 0.08, 1.0), 0xb5179e, 0, 1.1, 0.3));
+  p.push(part(box(0.3, 0.02, 3.72), 0xb5179e, 0, 0.74, 0));
+  p.push(part(box(0.1, 0.5, 0.8), 0xb5179e, -0.75, 0.95, 1.5)); // twin fins
+  p.push(part(box(0.1, 0.5, 0.8), 0xb5179e, 0.75, 0.95, 1.5));
+  p.push(part(box(1.7, 0.07, 0.45), 0x111111, 0, 1.22, 1.6));
+  p.push(part(box(1.4, 0.1, 0.06), 0xff4d6d, 0, 0.62, 1.86));
+  p.push(part(box(0.4, 0.1, 0.06), 0xfff6c4, -0.5, 0.6, -2.86));
+  p.push(part(box(0.4, 0.1, 0.06), 0xfff6c4, 0.5, 0.6, -2.86));
+  addWheels(p, 0.82, [-1.2, 1.25], 0.36, 0.3, 0xb5179e);
+  return merge(p);
+};
+PLAYER_BUILDERS.legend = () => {
+  const p = [];
+  const body = 0xffc300;
+  p.push(part(box(2.1, 0.02, 4.5), ROAD_SHADOW, 0, 0.015, 0));
+  p.push(part(box(1.85, 0.45, 4.2), body, 0, 0.55, 0));
+  p.push(part(box(1.7, 0.18, 1.5), body, 0, 0.82, -1.2));
+  p.push(part(box(1.35, 0.38, 1.6), GLASS, 0, 0.95, 0.35));
+  p.push(part(box(1.4, 0.1, 1.2), 0x111111, 0, 1.18, 0.4));
+  p.push(part(box(0.5, 0.02, 4.22), 0x111111, 0, 0.79, 0));
+  p.push(part(box(0.12, 0.45, 0.12), 0x111111, -0.7, 0.98, 1.95));
+  p.push(part(box(0.12, 0.45, 0.12), 0x111111, 0.7, 0.98, 1.95));
+  p.push(part(box(2.0, 0.1, 0.55), body, 0, 1.24, 1.95));
+  for (const x of [-0.8, -0.4, 0, 0.4, 0.8]) p.push(part(box(0.16, 0.22, 0.16), 0xffffff, x, 1.38, 1.95)); // crown
+  p.push(part(box(1.7, 0.12, 0.06), 0xff1030, 0, 0.66, 2.11));
+  p.push(part(box(0.45, 0.12, 0.06), 0xfff6c4, -0.6, 0.62, -2.11));
+  p.push(part(box(0.45, 0.12, 0.06), 0xfff6c4, 0.6, 0.62, -2.11));
+  p.push(part(box(1.95, 0.14, 0.24), 0x111111, 0, 0.36, -2.1));
+  addWheels(p, 0.94, [-1.3, 1.35], 0.42, 0.34, 0xffffff);
+  return merge(p);
+};
 const playerGeos = {};
 for (const c of CARS) playerGeos[c.id] = PLAYER_BUILDERS[c.id]();
 
@@ -913,6 +1139,8 @@ for (const s of [-1, 1]) {
 }
 
 const dummy = new THREE.Object3D();
+// The current tunnel (if any). Declared early because scenery hides itself inside it.
+const tun = { active: false, z: 0, len: 0, cooldown: 0 };
 
 /** A pool of instanced objects that scroll toward the camera and wrap. */
 class Scroller {
@@ -948,7 +1176,8 @@ class Scroller {
       }
       dummy.position.set(it.x, it.y, it.z);
       dummy.rotation.set(0, it.ry, 0);
-      dummy.scale.set(it.s, it.s * it.sy, it.s);
+      if (this.tunnelHide && tun.active && it.z < tun.z + 3 && it.z > tun.z - tun.len - 3) dummy.scale.set(0, 0, 0); // inside the rock
+      else dummy.scale.set(it.s, it.s * it.sy, it.s);
       dummy.updateMatrix();
       this.mesh.setMatrixAt(i, dummy.matrix);
     }
@@ -1174,6 +1403,64 @@ const SCENERY = {
   ],
 };
 
+// ---- New worlds
+const greyRockGeo = merge([
+  part(new THREE.DodecahedronGeometry(0.9, 0), 0x8a9099, 0, 0.5, 0),
+  part(new THREE.DodecahedronGeometry(0.55, 0), 0x6f7680, 0.8, 0.3, 0.3),
+]);
+const peakGeo = merge([
+  part(new THREE.ConeGeometry(1, 1.6, 6), 0x7d8590, 0, 0.8, 0),
+  part(new THREE.ConeGeometry(0.42, 0.68, 6), 0xffffff, 0, 1.27, 0),
+]);
+const billboardGeo = (panel) =>
+  merge([
+    part(box(0.3, 5, 0.3), 0x6c757d, -1.8, 2.5, 0),
+    part(box(0.3, 5, 0.3), 0x6c757d, 1.8, 2.5, 0),
+    part(box(5.6, 2.8, 0.25), 0xf8f9fa, 0, 6.2, 0),
+    part(box(5.1, 2.3, 0.3), panel, 0, 6.2, 0),
+    part(box(3.2, 0.35, 0.34), 0xffffff, -0.5, 6.6, 0),
+    part(box(2.0, 0.35, 0.34), 0xffffff, -1.1, 5.9, 0),
+  ]);
+const puddleGeo = new THREE.CircleGeometry(1, 10);
+puddleGeo.rotateX(-Math.PI / 2);
+const blockMat = () => new THREE.MeshLambertMaterial({ flatShading: true });
+Object.assign(SCENERY, {
+  rain: [
+    new Scroller(pineGeo, vcMat, 28, placeScenery(7, 16, 0.8, 1.4)),
+    new Scroller(roundTreeGeo, vcMat, 22, placeScenery(7, 18, 0.8, 1.3)),
+    new Scroller(unitBox, blockMat(), 22, placeBlocks(21, 34, 5, 9, 0.8, 3), { colors: [0x8d99ae, 0xa3b1c2, 0x778da9, 0xb8c4d0, 0x9a8c98] }),
+    // puddles on the wet road
+    new Scroller(puddleGeo, new THREE.MeshBasicMaterial({ color: 0xb9cde0, transparent: true, opacity: 0.2, depthWrite: false }), 18, (it, i, first) => {
+      it.x = (Math.random() - 0.5) * 7.6;
+      if (first) it.z = WRAP_MIN + Math.random() * WRAP_LEN;
+      it.y = 0.012;
+      it.s = 0.7 + Math.random() * 1.3;
+    }),
+  ],
+  mountain: [
+    new Scroller(pineGeo, vcMat, 40, placeScenery(7, 20, 0.8, 1.5)),
+    new Scroller(greyRockGeo, vcMat, 26, placeScenery(6, 22, 0.7, 2.2)),
+    new Scroller(bushGeo, vcMat, 18, placeScenery(5.8, 10, 0.6, 1.1)),
+    new Scroller(peakGeo, vcMat, 16, placeBlocks(34, 75, 16, 30, 0.8, 1.3)),
+  ],
+  tunnel: [
+    new Scroller(rockGeo, vcMat, 30, placeScenery(6, 22, 0.7, 2)),
+    new Scroller(dryBushGeo, vcMat, 22, placeScenery(5.8, 13, 0.6, 1.2)),
+    new Scroller(pineGeo, vcMat, 12, placeScenery(8, 18, 0.8, 1.2)),
+    new Scroller(unitBox, blockMat(), 18, placeBlocks(18, 42, 8, 16, 0.5, 1.4), { colors: [0xa68a64, 0x936639, 0xb6ad90, 0x7f5539, 0xc2a878] }),
+  ],
+  highway: [
+    new Scroller(billboardGeo(0xe63946), vcMat, 5, placeScenery(10, 15, 1, 1.15, false)),
+    new Scroller(billboardGeo(0x4361ee), vcMat, 5, placeScenery(10, 15, 1, 1.15, false)),
+    new Scroller(lampGeo, vcMat, lampCount, lampInit),
+    new Scroller(bushGeo, vcMat, 22, placeScenery(6, 12, 0.6, 1.2)),
+    new Scroller(roundTreeGeo, vcMat, 14, placeScenery(16, 26, 0.9, 1.4)),
+    new Scroller(unitBox, blockMat(), 14, placeBlocks(34, 50, 6, 10, 1.2, 3.5), { colors: [0xced4da, 0xadb5bd, 0xdee2e6, 0xa5b4c3] }),
+  ],
+});
+
+for (const k of THEME_KEYS) for (const sc of SCENERY[k]) sc.tunnelHide = true;
+
 // Clouds
 const cloudGeo = merge([
   part(new THREE.IcosahedronGeometry(3, 0), 0xffffff, 0, 0, 0),
@@ -1261,7 +1548,7 @@ function applyTheme(key) {
   setCurbColors(t.curbA, t.curbB);
   for (const k of THEME_KEYS) for (const s of SCENERY[k]) s.visible = k === key;
   for (const c of clouds) c.visible = t.clouds;
-  cloudMat.color.set(key === 'desert' ? 0xfff4e6 : 0xffffff);
+  cloudMat.color.set(key === 'desert' ? 0xfff4e6 : key === 'rain' ? 0x9aa6b2 : 0xffffff);
   nightSky.visible = key === 'night';
   snowfall.visible = key === 'snow';
   const night = key === 'night';
@@ -1279,7 +1566,16 @@ function applyTheme(key) {
   edgeMat.color.set(night ? 0xffe9a0 : 0xffffff);
   curbs.material.emissive.set(night ? 0x4a3f12 : 0x000000);
   coinMat.emissive.set(night ? 0xb07a00 : 0x6b4a00);
+  amb.sky.set(t.sky);
+  amb.fogNear = t.fogNear;
+  amb.fogFar = t.fogFar;
+  amb.hemi = t.hemi[2];
+  amb.sun = t.sun[1];
+  amb.night = night;
+  amb.dirty = true;
 }
+// Base ambience of the current theme; tunnels darken it and exits flash it.
+const amb = { sky: new THREE.Color(), fogNear: 55, fogFar: 165, hemi: 1.6, sun: 1.8, night: false, dark: 0, flash: 0, dirty: true };
 
 /* =========================================================
    Player
@@ -1411,20 +1707,70 @@ const carTypes = [
   buildTruck(0x2a9d8f, 0xffb703),
 ];
 const TRUCKS_FROM = 8;
+function buildBigRig(cab, trailer) {
+  const p = [];
+  p.push(part(box(2.4, 0.02, 9.6), ROAD_SHADOW, 0, 0.015, 0));
+  p.push(part(box(2.1, 1.7, 1.9), cab, 0, 1.3, -3.7));
+  p.push(part(box(2.12, 0.6, 0.8), 0x23324d, 0, 1.75, -4.25));
+  p.push(part(box(2.2, 2.5, 6.6), trailer, 0, 1.85, 0.9));
+  p.push(part(box(2.22, 0.3, 6.62), 0xffffff, 0, 1.3, 0.9));
+  p.push(part(box(1.7, 0.3, 9.0), 0x333338, 0, 0.5, 0));
+  p.push(part(box(2.16, 0.26, 0.24), 0xdadde5, 0, 0.5, -4.7));
+  p.push(part(box(0.4, 0.22, 0.06), 0xfff6c4, -0.75, 0.9, -4.67));
+  p.push(part(box(0.4, 0.22, 0.06), 0xfff6c4, 0.75, 0.9, -4.67));
+  p.push(part(box(0.25, 0.9, 0.25), 0x8a8f99, -0.9, 2.6, -2.9)); // exhaust stacks
+  p.push(part(box(0.25, 0.9, 0.25), 0x8a8f99, 0.9, 2.6, -2.9));
+  addWheels(p, 1.0, [-3.6, -2.2, 2.4, 3.6], 0.48, 0.4);
+  return { geo: merge(p), halfL: 4.7, halfW: 1.05 };
+}
+const BIG_RIGS = [buildBigRig(0x1d3557, 0xf1faee), buildBigRig(0xd00000, 0xffba08), buildBigRig(0x2b9348, 0xdee2e6)];
+
+const policeGeo = (() => {
+  const p = [];
+  p.push(part(box(2.0, 0.02, 4.3), ROAD_SHADOW, 0, 0.015, 0));
+  p.push(part(box(1.75, 0.6, 3.9), 0x111418, 0, 0.62, 0));
+  p.push(part(box(1.77, 0.5, 1.5), 0xffffff, 0, 0.66, 0.15)); // white doors
+  p.push(part(box(1.4, 0.42, 1.9), 0x23324d, 0, 1.13, 0.2));
+  p.push(part(box(1.46, 0.12, 1.7), 0xffffff, 0, 1.38, 0.2));
+  p.push(part(box(1.2, 0.1, 0.3), 0x222222, 0, 1.47, 0.2)); // light bar base
+  p.push(part(box(1.9, 0.3, 0.3), 0x333338, 0, 0.5, -2.0)); // push bar
+  p.push(part(box(0.38, 0.16, 0.06), 0xfff6c4, -0.55, 0.74, -1.96));
+  p.push(part(box(0.38, 0.16, 0.06), 0xfff6c4, 0.55, 0.74, -1.96));
+  p.push(part(box(0.38, 0.14, 0.06), 0xff2a3d, -0.6, 0.72, 1.96));
+  p.push(part(box(0.38, 0.14, 0.06), 0xff2a3d, 0.6, 0.72, 1.96));
+  addWheels(p, 0.84, [-1.2, 1.2]);
+  return merge(p);
+})();
 
 const traffic = [];
 function getCar() {
   for (const c of traffic) if (!c.active) return c;
   const mesh = new THREE.Mesh(carTypes[0].geo, vcMat);
   scene.add(mesh);
-  const c = { mesh, active: false, halfL: 2, halfW: 0.85, lane: 0, wobble: 0 };
+  // blinking indicator, only shown on trucks that are about to change lanes
+  const ind = new THREE.Mesh(indGeo, indMat);
+  ind.visible = false;
+  mesh.add(ind);
+  const c = { mesh, ind, active: false, halfL: 2, halfW: 0.85, lane: 0, wobble: 0, mover: null };
   traffic.push(c);
   return c;
 }
-function spawnCar(lane, z) {
+const indGeo = box(0.75, 0.55, 0.4);
+const indMat = new THREE.MeshBasicMaterial({ color: 0xff9100, fog: false });
+function killCar(c) {
+  c.active = false;
+  c.mover = null;
+  c.mesh.visible = false;
+  c.ind.visible = false;
+}
+/** `moveTo` (a lane) makes it a big rig that switches to that lane as it approaches. */
+function spawnCar(lane, z, moveTo = -1) {
   const c = getCar();
   const idx = Math.random() < 0.18 ? TRUCKS_FROM + Math.floor(Math.random() * 2) : Math.floor(Math.random() * TRUCKS_FROM);
-  const t = carTypes[idx];
+  const t = moveTo >= 0 ? BIG_RIGS[Math.floor(Math.random() * BIG_RIGS.length)] : carTypes[idx];
+  c.mover = moveTo >= 0 ? { from: lane, to: moveTo, t: 0, started: false } : null;
+  c.ind.visible = false;
+  if (c.mover) c.ind.position.set(-Math.sign(moveTo - lane) * 0.85, 3.2, -t.halfL + 0.9); // car is rotated 180°, so local -x is world +x
   c.mesh.geometry = t.geo;
   c.halfL = t.halfL;
   c.halfW = t.halfW;
@@ -1593,6 +1939,332 @@ shieldGlow.visible = false;
 player.add(shieldGlow);
 
 /* =========================================================
+   World mechanics: rain, tunnels, lane-changing trucks, police boss
+   ========================================================= */
+const NO_FX = { rain: false, hills: false, tunnels: false, trucks: false, boss: false };
+const runFx = () => (state.level && RUN_MODES.includes(state.mode) ? state.level.fx : NO_FX);
+
+// ---- Rain streaks
+const RAIN_N = 260;
+const rainPos = new Float32Array(RAIN_N * 6);
+const rainDrops = [];
+for (let i = 0; i < RAIN_N; i++) rainDrops.push({ x: (Math.random() - 0.5) * 34, y: Math.random() * 16, z: -58 + Math.random() * 62 });
+const rainGeo = new THREE.BufferGeometry();
+rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0xd6e6f5, transparent: true, opacity: 0.55, fog: false }));
+rain.frustumCulled = false;
+rain.visible = false;
+scene.add(rain);
+function updateRain(dt, dz) {
+  for (let i = 0; i < RAIN_N; i++) {
+    const d = rainDrops[i];
+    d.y -= dt * 40;
+    d.x -= dt * 5;
+    d.z += dz * 0.8;
+    if (d.y < 0 || d.z > 5) {
+      d.y = 12 + Math.random() * 6;
+      d.x = (Math.random() - 0.5) * 34;
+      d.z = -58 + Math.random() * 60;
+    }
+    const k = i * 6;
+    rainPos[k] = d.x;
+    rainPos[k + 1] = d.y;
+    rainPos[k + 2] = d.z;
+    rainPos[k + 3] = d.x + 0.16;
+    rainPos[k + 4] = d.y + 1.3;
+    rainPos[k + 5] = d.z;
+  }
+  rainGeo.attributes.position.needsUpdate = true;
+}
+
+// ---- Tunnel: a rock ridge with a bore through it, lamps inside, a bright exit
+const TUN_W = 5.75;
+const TUN_H = 9.6;
+const tunnelMesh = new THREE.Mesh(
+  merge([
+    part(box(72, 34, 1), 0x6f7480, -(TUN_W + 36), 17, -0.5),
+    part(box(72, 34, 1), 0x6f7480, TUN_W + 36, 17, -0.5),
+    part(box(TUN_W * 2, 34 - TUN_H, 1), 0x646974, 0, TUN_H + (34 - TUN_H) / 2, -0.5),
+    part(box(0.12, 0.5, 1), 0xf1f3f5, -(TUN_W - 0.07), 1.6, -0.5), // wall stripes
+    part(box(0.12, 0.5, 1), 0xf1f3f5, TUN_W - 0.07, 1.6, -0.5),
+    part(box(0.12, 0.25, 1), 0xffd60a, -(TUN_W - 0.07), 0.9, -0.5),
+    part(box(0.12, 0.25, 1), 0xffd60a, TUN_W - 0.07, 0.9, -0.5),
+  ]),
+  vcMat
+);
+tunnelMesh.frustumCulled = false;
+tunnelMesh.visible = false;
+scene.add(tunnelMesh);
+const TUN_LAMPS = 44;
+const TUN_LAMP_GAP = 9;
+const tunnelLamps = new THREE.InstancedMesh(box(1.8, 0.16, 0.6), new THREE.MeshBasicMaterial({ color: 0xfff1b0, fog: false }), TUN_LAMPS * 2);
+tunnelLamps.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+tunnelLamps.frustumCulled = false;
+tunnelLamps.visible = false;
+scene.add(tunnelLamps);
+const tunnelExit = new THREE.Mesh(
+  new THREE.PlaneGeometry(TUN_W * 2, TUN_H),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, fog: false })
+);
+tunnelExit.position.y = TUN_H / 2;
+tunnelExit.visible = false;
+scene.add(tunnelExit);
+function spawnTunnel() {
+  tun.active = true;
+  tun.z = -245;
+  tun.len = 230 + Math.random() * 130;
+  tunnelMesh.scale.z = tun.len;
+  tunnelMesh.visible = tunnelLamps.visible = tunnelExit.visible = true;
+}
+function endTunnel() {
+  tun.active = false;
+  tunnelMesh.visible = tunnelLamps.visible = tunnelExit.visible = false;
+}
+function updateTunnel(dt, dz, spawning) {
+  if (!tun.active) {
+    if (spawning) {
+      tun.cooldown -= dz;
+      if (tun.cooldown <= 0) spawnTunnel();
+    }
+    return false;
+  }
+  tun.z += dz;
+  tunnelMesh.position.z = tun.z;
+  tunnelExit.position.z = tun.z - tun.len + 0.6;
+  for (let i = 0; i < TUN_LAMPS; i++) {
+    const lz = tun.z - 5 - i * TUN_LAMP_GAP;
+    const on = lz > tun.z - tun.len + 3;
+    for (let side = 0; side < 2; side++) {
+      dummy.position.set(side ? 2.6 : -2.6, TUN_H - 0.1, lz);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(on ? 1 : 0);
+      dummy.updateMatrix();
+      tunnelLamps.setMatrixAt(i * 2 + side, dummy.matrix);
+    }
+  }
+  tunnelLamps.instanceMatrix.needsUpdate = true;
+  const camZ = camera.position.z;
+  const inside = tun.z > camZ + 0.5 && tun.z - tun.len < camZ - 0.5;
+  if (tun.z - tun.len > camZ + 25) {
+    endTunnel();
+    tun.cooldown = 200 + Math.random() * 240;
+  }
+  return inside;
+}
+
+/** Blend the theme's light and fog with tunnel darkness and the exit flash. */
+const DARK_COL = new THREE.Color(0x07080d);
+const WHITE_COL = new THREE.Color(0xffffff);
+function updateAmbience(dt, inside) {
+  const wasDark = amb.dark > 0.5;
+  amb.dark += ((inside ? 1 : 0) - amb.dark) * Math.min(1, dt * 7);
+  if (amb.dark < 0.002) amb.dark = 0;
+  if (wasDark && !inside && amb.flash < 0.5) amb.flash = 1; // burst into daylight
+  if (amb.flash > 0) amb.flash = Math.max(0, amb.flash - dt * 1.1);
+  if (!amb.dirty && amb.dark === 0 && amb.flash === 0) return;
+  amb.dirty = amb.dark !== 0 || amb.flash !== 0; // run once more after settling
+  const dk = amb.dark;
+  const fl = amb.flash * amb.flash;
+  const col = scene.fog.color;
+  col.copy(amb.sky).lerp(DARK_COL, dk).lerp(WHITE_COL, fl * 0.85);
+  scene.background.copy(col);
+  scene.fog.near = (amb.fogNear + (22 - amb.fogNear) * dk) * (1 - 0.7 * fl);
+  scene.fog.far = (amb.fogFar + (125 - amb.fogFar) * dk) * (1 - 0.45 * fl);
+  hemi.intensity = amb.hemi * (1 - 0.7 * dk) + fl * 1.3;
+  sun.intensity = amb.sun * (1 - 0.92 * dk) + fl;
+  const lit = amb.night || dk > 0.4;
+  headlight.intensity = amb.night ? 9 : 9 * dk;
+  beam.visible = lit;
+  for (const c of beamCones) c.visible = lit;
+  carGlow.visible = lit;
+  tunnelExit.material.opacity = 0.6 * dk;
+}
+
+// ---- Police boss
+const police = { mesh: new THREE.Mesh(policeGeo, vcMat), active: false, x: 0, z: 16, lane: 1, phase: 'off', timer: 0, threat: false, nm: false, sirenT: 0, sirenHi: false };
+police.mesh.visible = false;
+scene.add(police.mesh);
+const policeLights = [0xff1744, 0x2979ff].map((color, i) => {
+  const m = new THREE.Mesh(box(0.5, 0.22, 0.3), new THREE.MeshBasicMaterial({ color, fog: false }));
+  m.position.set(i ? 0.32 : -0.32, 1.63, 0.2);
+  police.mesh.add(m);
+  return m;
+});
+// red strip on the road showing the lane the police car is about to charge down
+const policeWarn = new THREE.Mesh(
+  new THREE.PlaneGeometry(2.5, 16),
+  new THREE.MeshBasicMaterial({ color: 0xff1744, transparent: true, opacity: 0.4, depthWrite: false, fog: false })
+);
+policeWarn.rotation.x = -Math.PI / 2;
+policeWarn.visible = false;
+scene.add(policeWarn);
+const POLICE_Z = 6.4; // cruising distance behind the player
+const POLICE_HALF_L = 1.95;
+const POLICE_HALF_W = 0.87;
+function startPolice() {
+  Object.assign(police, { active: true, x: 0, z: 22, lane: 1, phase: 'arrive', timer: 2.4, threat: false, nm: false, sirenT: 0 });
+  police.mesh.visible = true;
+}
+function stopPolice() {
+  police.active = false;
+  police.phase = 'off';
+  police.threat = false;
+  police.mesh.visible = false;
+  policeWarn.visible = false;
+}
+function policeFollowTime() {
+  const d = Math.min(1.5, state.level.index / 40);
+  return Math.max(1.5, 3.4 - d) + Math.random() * 1.2;
+}
+function updatePolice(dt) {
+  const P = police;
+  const playing = state.mode === 'playing';
+  const t = performance.now();
+  policeLights[0].visible = Math.floor(t / 140) % 2 === 0;
+  policeLights[1].visible = !policeLights[0].visible;
+  if (!playing) {
+    // level over: fall back (finished) or stop (crashed)
+    if (state.mode === 'completing' || state.mode === 'complete') P.z += dt * 14;
+    policeWarn.visible = false;
+  } else if (!state.tutorial) {
+    P.timer -= dt;
+    P.sirenT -= dt;
+    if (P.sirenT <= 0) {
+      P.sirenHi = !P.sirenHi;
+      P.sirenT = P.phase === 'warn' ? 0.16 : 0.42;
+      Sound.siren(P.sirenHi, P.phase === 'warn');
+    }
+    const laneX = LANES[P.lane];
+    switch (P.phase) {
+      case 'arrive':
+        P.z += (POLICE_Z - P.z) * Math.min(1, dt * 2.2);
+        P.x += (state.x - P.x) * Math.min(1, dt * 2);
+        if (P.timer <= 0) {
+          P.phase = 'follow';
+          P.timer = policeFollowTime();
+        }
+        break;
+      case 'follow':
+        P.z += (POLICE_Z - P.z) * Math.min(1, dt * 4);
+        P.x += (state.x - P.x) * Math.min(1, dt * 2.6); // tails the player with a little lag
+        if (P.timer <= 0) {
+          P.phase = 'warn';
+          P.lane = state.lane;
+          P.timer = Math.max(0.5, 0.85 - Math.min(0.3, state.level.index / 200));
+          P.threat = true;
+          P.nm = false;
+        }
+        break;
+      case 'warn':
+        P.x += (laneX - P.x) * Math.min(1, dt * 12);
+        P.z = POLICE_Z + Math.sin(t / 30) * 0.08;
+        if (P.timer <= 0) {
+          P.phase = 'lunge';
+          P.timer = 0.3;
+        }
+        break;
+      case 'lunge':
+        P.x = laneX;
+        P.z += (0.5 - P.z) * Math.min(1, dt * 14);
+        if (P.timer <= 0) {
+          P.phase = 'hold';
+          P.timer = 0.85;
+        }
+        break;
+      case 'hold':
+        P.z += (0.5 - P.z) * Math.min(1, dt * 10);
+        if (P.timer <= 0) {
+          P.phase = 'back';
+          P.timer = 0.8;
+        }
+        break;
+      default: // back
+        P.z += (POLICE_Z - P.z) * Math.min(1, dt * 4.5);
+        if (P.timer <= 0) {
+          P.phase = 'follow';
+          P.timer = policeFollowTime();
+          P.threat = false;
+        }
+    }
+    policeWarn.visible = P.phase === 'warn' && Math.floor(t / 90) % 2 === 0;
+    if (policeWarn.visible) policeWarn.position.set(laneX, 0.02, -1.5);
+    // Ramming: only possible while the police car is level with the player.
+    if (state.invuln <= 0 && Math.abs(P.z - player.position.z) < POLICE_HALF_L + state.car.halfL - 0.15) {
+      if (Math.abs(P.x - state.x) < POLICE_HALF_W + state.car.halfW - 0.1) {
+        if (state.shield > 0 || state.fx.shield > 0) {
+          absorbHit(null);
+          burst(P.x, 1.2, P.z, 30, [0x3a86ff, 0xffffff, 0x111418], 9, 1.2);
+          P.phase = 'back';
+          P.timer = 1.6;
+          P.z = POLICE_Z + 3;
+        } else {
+          state.busted = true;
+          crash(null);
+        }
+      } else if (!P.nm && P.lane === state.leftLane && state.time - state.leftAt < 0.6) {
+        nearMiss(P);
+      }
+    }
+  }
+  P.mesh.position.set(P.x, 0, P.z);
+  P.mesh.rotation.y = (P.x - LANES[P.lane]) * (P.phase === 'warn' ? 0.06 : 0);
+}
+
+// ---- Finish line (boss levels)
+const finishGate = new THREE.Mesh(
+  (() => {
+    const p = [part(box(0.5, 10.6, 0.5), 0xf8f9fa, -5.6, 5.3, 0), part(box(0.5, 10.6, 0.5), 0xf8f9fa, 5.6, 5.3, 0)];
+    for (let ix = 0; ix < 14; ix++) for (let iy = 0; iy < 2; iy++) p.push(part(box(0.8, 0.8, 0.3), (ix + iy) % 2 ? 0x111111 : 0xffffff, -5.2 + ix * 0.8, 9.4 + iy * 0.8, 0));
+    for (let ix = 0; ix < 12; ix++) for (let iz = 0; iz < 2; iz++) p.push(part(box(0.8, 0.02, 0.8), (ix + iz) % 2 ? 0x111111 : 0xffffff, -4.4 + ix * 0.8, 0.02, -0.4 + iz * 0.8));
+    return merge(p);
+  })(),
+  vcMat
+);
+finishGate.frustumCulled = false;
+finishGate.visible = false;
+scene.add(finishGate);
+
+function resetMechanics() {
+  endTunnel();
+  tun.cooldown = 130 + Math.random() * 80;
+  stopPolice();
+  finishGate.visible = false;
+  amb.dark = 0;
+  amb.flash = 0;
+  amb.dirty = true;
+  headlight.visible = amb.night;
+}
+function updateMechanics(dt, roadDz, mode) {
+  const fx = runFx();
+  const playing = mode === 'playing';
+  // hills and curves
+  if (fx.hills && playing) {
+    const dist = state.distance;
+    const ramp = Math.min(1, dist / 220);
+    bendTarget.set((Math.sin(dist * 0.011) * 0.004 + Math.sin(dist * 0.027 + 1) * 0.0013) * ramp, Math.sin(dist * 0.017 + 2) * 0.0021 * ramp);
+  } else if (!fx.hills) {
+    bendTarget.set(0, 0);
+  }
+  bendUniform.value.lerp(bendTarget, Math.min(1, dt * 2.5));
+  // tunnels + ambience
+  const inside = updateTunnel(dt, roadDz, playing && fx.tunnels && !state.tutorial);
+  updateAmbience(dt, inside);
+  // rain (also on the menus of the rain world)
+  const raining = (RUN_MODES.includes(mode) ? fx.rain : currentTheme === 'rain' && mode !== 'garage') && amb.dark < 0.5;
+  if (rain.visible !== raining) rain.visible = raining;
+  if (raining) updateRain(dt, roadDz);
+  if (amb.dark > 0.5 && snowfall.visible) snowfall.visible = false;
+  else if (amb.dark <= 0.5 && currentTheme === 'snow' && !snowfall.visible) snowfall.visible = true;
+  // police + finish line
+  if (police.active) updatePolice(dt);
+  if (fx.boss && state.level) {
+    const left = state.level.target - state.distance;
+    finishGate.visible = left < 200;
+    finishGate.position.z = -left;
+  }
+}
+
+/* =========================================================
    Game state
    ========================================================= */
 const state = {
@@ -1617,8 +2289,13 @@ const state = {
   puTimer: 0,
   time: 0, // seconds since the run started (keeps running during the tutorial)
   nearMisses: 0,
+  coinsGot: 0, // coins picked up / missed (for the 80% challenge)
+  coinsMissed: 0,
+  powerUsed: 0,
   leftLane: -1, // lane the player most recently swerved out of...
   leftAt: -9, // ...and when (state.time)
+  vx: 0, // sideways speed (only used on wet roads)
+  busted: false,
   tutorial: 0, // 0 off, 1 waiting for swipes, 2 "well done" message
   tutSwipes: 0,
   tutTimer: 0,
@@ -1633,10 +2310,7 @@ let garageReturn = 'menu';
 let infoLevel = null;
 
 function clearWorld() {
-  for (const c of traffic) {
-    c.active = false;
-    c.mesh.visible = false;
-  }
+  for (const c of traffic) killCar(c);
   for (const c of coins) c.active = false;
   for (const p of parts) p.life = 0;
   for (const pk of pickups) {
@@ -1646,6 +2320,7 @@ function clearWorld() {
   for (const k of PU_KEYS) state.fx[k] = 0;
   shieldGlow.visible = false;
   refreshPowerHUD();
+  resetMechanics();
   state.tutorial = 0;
   $('tutorial').classList.add('hidden');
   $('notice').classList.remove('show');
@@ -1786,12 +2461,13 @@ function finishTutorial() {
 function nearMiss(c) {
   c.nm = true;
   state.nearMisses++;
-  state.coins += NEAR_MISS_BONUS;
+  const bonus = NEAR_MISS_BONUS * (state.car.nearMissMul || 1);
+  state.coins += bonus;
   missionProgress('nearmiss', 1);
   Sound.nearMiss();
   vibrate(25);
   burst(c.mesh.position.x, 1.2, player.position.z, 8, [0xffffff, 0xffd60a], 5, 0.8);
-  notice(`NEAR MISS! +${NEAR_MISS_BONUS}`, 'gold');
+  notice(`NEAR MISS! +${bonus}`, 'gold');
 }
 
 /* ---------- Power-up effects ---------- */
@@ -1819,6 +2495,7 @@ function refreshPowerHUD() {
   }
 }
 function activatePower(type) {
+  state.powerUsed++;
   missionProgress('powerups', 1);
   const d = puDuration(type);
   state.fx[type] = d;
@@ -1848,7 +2525,7 @@ function goMenu() {
   resetPlayerPose();
   state.slow = 1;
   player.geometry = playerGeos[save.selected];
-  applyTheme(LEVELS[save.unlocked].theme);
+  applyTheme(getLevel(save.unlocked).theme);
   showHUD(false);
   showScreen('menu');
   ensureMissions();
@@ -1949,41 +2626,96 @@ function claimDaily() {
   refreshWallets();
 }
 
-function buildLevelList() {
-  const list = ui.levelList;
-  list.innerHTML = '';
-  THEME_KEYS.forEach((key, w) => {
-    const t = THEMES[key];
-    const sec = document.createElement('section');
-    sec.className = `world ${key}`;
-    const worldStars = save.stars.slice(w * 5, w * 5 + 5).reduce((a, b) => a + b, 0);
-    const locked = save.unlocked < w * 5;
-    sec.innerHTML = `<div class="world-head"><span>${t.emoji} ${t.name}${locked ? ' 🔒' : ''}</span><span>⭐ ${worldStars}/15</span></div>`;
-    const grid = document.createElement('div');
-    grid.className = 'world-grid';
-    for (let i = w * 5; i < w * 5 + 5; i++) {
-      const b = document.createElement('button');
-      const unlocked = i <= save.unlocked;
-      b.className = 'lvl' + (unlocked ? '' : ' locked') + (unlocked && i === save.unlocked && save.stars[i] === 0 ? ' current' : '');
-      if (unlocked) {
-        const st = [0, 1, 2].map((k) => `<span class="${k < save.stars[i] ? 'on' : ''}">★</span>`).join('');
-        b.innerHTML = `${i + 1}<span class="st">${st}</span>`;
-        b.addEventListener('click', () => {
-          Sound.click();
-          openLevelInfo(LEVELS[i]);
-        });
-      } else {
-        b.innerHTML = '🔒';
-        b.disabled = true;
-      }
-      grid.appendChild(b);
-    }
-    sec.appendChild(grid);
-    list.appendChild(sec);
-  });
+let viewWorld = 0; // world shown on the level grid
+const worldUnlocked = (w) => save.unlocked >= WORLDS[w].start;
+function worldStars(w) {
+  const wd = WORLDS[w];
+  let n = 0;
+  const end = w === BEYOND ? save.stars.length : wd.start + wd.count;
+  for (let i = wd.start; i < end; i++) n += save.stars[i] || 0;
+  return n;
 }
 
-function openLevels() {
+/* World select: every world, locked ones say how to unlock them. */
+function openWorlds() {
+  state.mode = 'worlds';
+  clearWorld();
+  resetPlayerPose();
+  player.geometry = playerGeos[save.selected];
+  showHUD(false);
+  const list = $('world-list');
+  list.innerHTML = '';
+  const current = worldIndexOf(save.unlocked);
+  WORLDS.forEach((wd, w) => {
+    const open = worldUnlocked(w);
+    const card = document.createElement('button');
+    card.className = `world-card world ${wd.key}` + (open ? '' : ' locked') + (w === current ? ' current' : '');
+    const range = w === BEYOND ? `Level ${wd.start + 1}+` : `Levels ${wd.start + 1}–${wd.start + wd.count}`;
+    const starsTxt = w === BEYOND ? `⭐ ${worldStars(w)}` : `⭐ ${worldStars(w)}/${wd.count * 3}`;
+    const sub = open ? wd.blurb || range : `🔒 Finish Level ${wd.start} to unlock`;
+    card.innerHTML = `
+      <span class="wc-emoji">${worldEmoji(w)}</span>
+      <span class="wc-body"><span class="wc-name">${worldName(w)}</span><span class="wc-sub">${sub}</span></span>
+      <span class="wc-side"><span>${open ? starsTxt : ''}</span><small>${range}</small></span>`;
+    card.addEventListener('click', () => {
+      Sound.init();
+      Sound.click();
+      if (open) openLevels(w);
+      else toast(`Finish Level ${wd.start} to unlock ${worldName(w)}`);
+    });
+    list.appendChild(card);
+  });
+  showScreen('worlds');
+  const cur = list.children[current];
+  if (cur) list.scrollTop = Math.max(0, cur.offsetTop - 120);
+}
+
+function buildLevelList() {
+  const w = viewWorld;
+  const wd = WORLDS[w];
+  const list = ui.levelList;
+  list.innerHTML = '';
+  $('levels-title').textContent = `${worldEmoji(w)} ${worldName(w)}`;
+  const sec = document.createElement('section');
+  sec.className = `world ${wd.key}`;
+  let from = wd.start;
+  let to = wd.start + wd.count;
+  if (w === BEYOND) {
+    // show the most recent stretch plus a few locked ones ahead
+    from = Math.max(wd.start, Math.floor((save.unlocked - 20) / 5) * 5);
+    to = Math.max(save.unlocked + 5, wd.start + 10);
+    to = Math.ceil(to / 5) * 5;
+  }
+  const head = w === BEYOND ? `⭐ ${worldStars(w)}` : `⭐ ${worldStars(w)}/${wd.count * 3}`;
+  sec.innerHTML = `<div class="world-head"><span>${wd.blurb || 'Levels ' + (wd.start + 1) + '–' + (wd.start + wd.count)}</span><span>${head}</span></div>`;
+  const grid = document.createElement('div');
+  grid.className = 'world-grid';
+  for (let i = from; i < to; i++) {
+    const b = document.createElement('button');
+    const unlocked = i <= save.unlocked;
+    const stars = save.stars[i] || 0;
+    const boss = getLevel(i).type === 'boss';
+    b.className = 'lvl' + (unlocked ? '' : ' locked') + (boss ? ' boss' : '') + (unlocked && i === save.unlocked && stars === 0 ? ' current' : '');
+    if (unlocked) {
+      const st = [0, 1, 2].map((k) => `<span class="${k < stars ? 'on' : ''}">★</span>`).join('');
+      b.innerHTML = `${boss ? '<small>🚓</small>' : ''}${i + 1}<span class="st">${st}</span>`;
+      b.addEventListener('click', () => {
+        Sound.click();
+        openLevelInfo(getLevel(i));
+      });
+    } else {
+      b.innerHTML = boss ? '🚓' : '🔒';
+      b.disabled = true;
+    }
+    grid.appendChild(b);
+  }
+  sec.appendChild(grid);
+  list.appendChild(sec);
+}
+
+function openLevels(w) {
+  if (typeof w === 'number') viewWorld = w;
+  if (!worldUnlocked(viewWorld)) viewWorld = worldIndexOf(save.unlocked);
   state.mode = 'levels';
   clearWorld();
   resetPlayerPose();
@@ -1991,21 +2723,27 @@ function openLevels() {
   showHUD(false);
   buildLevelList();
   showScreen('levels');
-  const cur = ui.levelList.querySelector('.world:nth-child(' + (Math.floor(save.unlocked / 5) + 1) + ')');
-  if (cur) ui.levelList.scrollTop = Math.max(0, cur.offsetTop - 70);
+  const cur = ui.levelList.querySelector('.lvl.current');
+  if (cur) ui.levelList.scrollTop = Math.max(0, cur.offsetTop - 200);
 }
 
 function openLevelInfo(lvl) {
   infoLevel = lvl;
   applyTheme(lvl.theme);
-  $('li-world').textContent = `${THEMES[lvl.theme].emoji} ${THEMES[lvl.theme].name}`;
-  $('li-world').style.background = { city: '#4895ef', desert: '#e76f51', night: '#3a0ca3', snow: '#8eaccd' }[lvl.theme];
-  $('li-title').textContent = `Level ${lvl.num}`;
+  const badge = $('li-world');
+  badge.textContent = (lvl.world === BEYOND ? '♾️ Beyond · ' : '') + `${THEMES[lvl.theme].emoji} ${THEMES[lvl.theme].name}`;
+  badge.style.background = THEMES[lvl.theme].css;
+  $('li-title').textContent = (lvl.type === 'boss' ? '🚓 Boss · ' : '') + `Level ${lvl.num}`;
   $('li-goal').textContent = goalText(lvl);
-  const got = save.stars[lvl.index];
-  $('li-stars').innerHTML = starRules(lvl)
-    .map((r, k) => `<li class="${k < got ? 'got' : ''}">${'★'.repeat(k + 1)}${'☆'.repeat(2 - k)} ${r}</li>`)
-    .join('');
+  const fxs = Object.keys(FX_LABELS).filter((k) => lvl.fx[k]);
+  $('li-fx').textContent = fxs.map((k) => FX_LABELS[k]).join(' · ');
+  $('li-fx').classList.toggle('hidden', fxs.length === 0);
+  const got = save.stars[lvl.index] || 0;
+  const rules = starRules(lvl);
+  $('li-stars').innerHTML =
+    rules.slice(0, 2).map((r) => `<li>★ ${r}</li>`).join('') +
+    `<li class="chal">🏆 <b>Challenge:</b> ${rules[2]}</li>` +
+    `<li class="best">Your best: ${'★'.repeat(got)}${'☆'.repeat(3 - got)}</li>`;
   $('li-car').textContent = carById(save.selected).name;
   ui.levelInfo.classList.remove('hidden');
 }
@@ -2040,10 +2778,10 @@ function renderGarage() {
   } else if (owned) {
     btn.textContent = 'Select';
   } else if (!carUnlocked(car)) {
-    btn.textContent = `🔒 Unlocks at Level ${car.unlock}`;
+    btn.textContent = car.stars ? `⭐ Needs ${car.stars} stars (you have ${totalStars()})` : `🔒 Unlocks at Level ${car.unlock}`;
     btn.disabled = true;
   } else {
-    btn.textContent = `Buy · ${car.price} coins`;
+    btn.textContent = car.price > 0 ? `Buy · ${car.price} coins` : '⭐ Claim for free';
   }
 }
 
@@ -2106,6 +2844,11 @@ function startRun(level) {
     puTimer: 5 + Math.random() * 4,
     time: 0,
     nearMisses: 0,
+    coinsGot: 0,
+    coinsMissed: 0,
+    powerUsed: 0,
+    vx: 0,
+    busted: false,
     leftLane: -1,
     leftAt: -9,
     invuln: 0,
@@ -2137,6 +2880,11 @@ function startRun(level) {
     ui.best.textContent = save.best;
     ui.goal.classList.add('hidden');
   }
+  if (level && level.fx.tunnels) headlight.visible = true; // stays on (dimmed to zero outside) so shaders are not rebuilt at every portal
+  if (level && level.fx.boss) {
+    startPolice();
+    notice('🚓 Police! Reach the finish line', 'gold');
+  }
   Sound.engineStart();
   ensureMissions();
   if (!save.tutorialDone) startTutorial();
@@ -2144,12 +2892,12 @@ function startRun(level) {
 
 function goalProgress() {
   const lvl = state.level;
-  return lvl.type === 'distance' ? Math.floor(state.distance) : state.coins;
+  return lvl.type !== 'coins' ? Math.floor(state.distance) : state.coins;
 }
 function updateGoalUI() {
   const lvl = state.level;
   const p = Math.min(goalProgress(), lvl.target);
-  ui.goalCount.textContent = `${p} / ${lvl.target}${lvl.type === 'distance' ? ' m' : ''}`;
+  ui.goalCount.textContent = `${p} / ${lvl.target}${lvl.type !== 'coins' ? ' m' : ''}`;
   ui.goalFill.style.width = (p / lvl.target) * 100 + '%';
 }
 
@@ -2176,14 +2924,14 @@ function absorbHit(car) {
   ui.shield.classList.toggle('hidden', state.shield <= 0);
   vibrate(40);
   Sound.shield();
-  burst(car.mesh.position.x, 1.2, car.mesh.position.z, 40, [0x3a86ff, 0xffffff, 0x9bf6ff, 0x333333], 10, 1.3);
-  car.active = false;
-  car.mesh.visible = false;
+  if (car) burst(car.mesh.position.x, 1.2, car.mesh.position.z, 40, [0x3a86ff, 0xffffff, 0x9bf6ff, 0x333333], 10, 1.3);
+  if (car) killCar(car);
   toast('🛡️ Shield broken!');
 }
 
 function showOver() {
   state.mode = 'over';
+  document.querySelector('#over .crash-title').textContent = state.busted ? 'BUSTED!' : 'CRASH!';
   ui.hud.classList.add('hidden');
   const score = Math.floor(state.distance);
   save.coins += state.coins;
@@ -2193,7 +2941,7 @@ function showOver() {
   $('final-coins').textContent = state.coins;
   if (lvl) {
     $('over-goal-row').classList.remove('hidden');
-    $('over-goal-label').textContent = lvl.type === 'distance' ? 'Distance' : 'Coins';
+    $('over-goal-label').textContent = lvl.type !== 'coins' ? 'Distance' : 'Coins';
     $('over-goal').textContent = `${Math.min(goalProgress(), lvl.target)} / ${lvl.target}`;
     $('over-best-row').classList.add('hidden');
     $('new-best').classList.add('hidden');
@@ -2233,15 +2981,18 @@ function completeLevel() {
   for (const c of traffic) {
     if (c.active && c.mesh.position.z > -70) {
       burst(c.mesh.position.x, 1, c.mesh.position.z, 12, CONFETTI, 7, 1);
-      c.active = false;
-      c.mesh.visible = false;
+      killCar(c);
     }
   }
-  const stars = computeStars(lvl, state.coins, state.elapsed);
-  const bonus = stars * (10 + lvl.index * 3);
+  const second = secondStarDone(lvl);
+  const challenge = challengeDone(lvl);
+  const stars = 1 + (second ? 1 : 0) + (challenge ? 1 : 0);
+  const bonus = stars * (10 + Math.min(lvl.index, 80) * 3);
   const prevUnlocked = save.unlocked;
+  const prevStars = totalStars();
+  while (save.stars.length <= lvl.index) save.stars.push(0);
   save.stars[lvl.index] = Math.max(save.stars[lvl.index], stars);
-  save.unlocked = Math.max(save.unlocked, Math.min(LEVELS.length - 1, lvl.index + 1));
+  save.unlocked = Math.max(save.unlocked, lvl.index + 1);
   save.coins += state.coins + bonus;
   missionProgress('levels', 1);
   missionProgress('stars', stars);
@@ -2249,13 +3000,16 @@ function completeLevel() {
   persist();
   const unlockMsgs = [];
   if (save.unlocked > prevUnlocked) {
-    if (save.unlocked % 5 === 0) unlockMsgs.push(`${THEMES[LEVELS[save.unlocked].theme].emoji} New world: ${THEMES[LEVELS[save.unlocked].theme].name}!`);
+    const nw = WORLDS.findIndex((wd) => wd.start === save.unlocked);
+    if (nw > 0) unlockMsgs.push(`${worldEmoji(nw)} New world: ${worldName(nw)}!`);
     for (const car of CARS) {
-      if (car.unlock - 1 > prevUnlocked && car.unlock - 1 <= save.unlocked) unlockMsgs.push(`🚗 ${car.name} now in the garage!`);
+      if (car.unlock && car.unlock - 1 > prevUnlocked && car.unlock - 1 <= save.unlocked) unlockMsgs.push(`🚗 ${car.name} now in the garage!`);
     }
   }
-  if (lvl.index === LEVELS.length - 1 && save.stars[lvl.index] > 0) unlockMsgs.push('🏆 You beat all 20 levels!');
-  state.result = { stars, bonus, unlockMsgs };
+  for (const car of CARS) {
+    if (car.stars && prevStars < car.stars && totalStars() >= car.stars) unlockMsgs.push(`⭐ ${car.name} unlocked in the garage!`);
+  }
+  state.result = { stars, bonus, unlockMsgs, challenge };
 }
 
 function showComplete() {
@@ -2278,10 +3032,9 @@ function showComplete() {
     el.style.animation = '';
   });
   for (let i = 0; i < r.stars; i++) setTimeout(() => Sound.star(i), 200 + i * 200);
-  const next = $('c-next');
-  const last = lvl.index >= LEVELS.length - 1;
-  next.disabled = last;
-  next.textContent = last ? '🏆 All levels done!' : 'Next Level ▶';
+  $('c-chal-text').textContent = '🏆 ' + challengeText(lvl);
+  $('c-chal').textContent = r.challenge ? '✓' : '✗';
+  $('c-chal').className = r.challenge ? 'ok' : 'no';
   showScreen('complete');
 }
 
@@ -2305,7 +3058,7 @@ function quitRun() {
   endRunMissions();
   persist();
   Sound.click();
-  if (state.level) openLevels();
+  if (state.level) openLevels(state.level.world);
   else goMenu();
 }
 
@@ -2347,7 +3100,14 @@ function spawnRow() {
   } else {
     const l = Math.floor(Math.random() * 3);
     free[l] = false;
-    spawnCar(l, SPAWN_Z);
+    if (state.level && state.level.fx.trucks && Math.random() < 0.45) {
+      // a big rig that will swing into a neighbouring lane: both lanes count as taken
+      const to = l === 0 ? 1 : l === 2 ? 1 : Math.random() < 0.5 ? 0 : 2;
+      free[to] = false;
+      spawnCar(l, SPAWN_Z, to);
+    } else {
+      spawnCar(l, SPAWN_Z);
+    }
   }
   state.lastFree = free;
 
@@ -2471,7 +3231,7 @@ const on = (id, fn) =>
 
 on('btn-levels', () => {
   Sound.click();
-  openLevels();
+  openWorlds();
 });
 on('btn-endless', () => startRun(null));
 on('btn-garage', () => {
@@ -2482,6 +3242,7 @@ document.querySelectorAll('[data-back]').forEach((b) =>
   b.addEventListener('click', () => {
     Sound.click();
     if (state.mode === 'garage') closeGarage();
+    else if (state.mode === 'levels') openWorlds();
     else goMenu();
   })
 );
@@ -2514,17 +3275,17 @@ on('again', () => {
 });
 on('over-menu', () => {
   Sound.click();
-  if (state.level) openLevels();
+  if (state.level) openLevels(state.level.world);
   else goMenu();
 });
 on('c-next', () => {
   const n = state.level.index + 1;
-  if (n < LEVELS.length) startRun(LEVELS[n]);
+  startRun(getLevel(n));
 });
 on('c-retry', () => startRun(state.level));
 on('c-levels', () => {
   Sound.click();
-  openLevels();
+  openLevels(state.level.world);
 });
 on('pause', pauseGame);
 on('p-resume', resumeGame);
@@ -2603,7 +3364,7 @@ function update(dt) {
     ws = worldSpeed();
     state.distance += ws * dt;
     Sound.engineUpdate(ws);
-  } else if (mode === 'menu' || mode === 'levels' || mode === 'upgrades' || mode === 'missions') {
+  } else if (mode === 'menu' || mode === 'levels' || mode === 'upgrades' || mode === 'missions' || mode === 'worlds') {
     ws = 14;
   } else if (mode === 'garage') {
     ws = 0;
@@ -2624,6 +3385,7 @@ function update(dt) {
     if (c.position.x > 120) c.position.x = -120;
   }
   updateSnow(dt, roadDz);
+  updateMechanics(dt, roadDz, mode);
 
   // --- Spawning ---
   if (mode === 'playing' && !state.tutorial) {
@@ -2637,10 +3399,17 @@ function update(dt) {
     garageSpin += dt * 0.7;
     player.rotation.set(0, garageSpin, 0);
     player.position.set(0, CARS[garageIndex].id === 'comet' ? 0.15 + Math.sin(garageSpin * 3) * 0.08 : 0, 0);
-  } else if (mode === 'playing' || mode === 'menu' || mode === 'levels' || mode === 'upgrades' || mode === 'missions') {
+  } else if (mode === 'playing' || mode === 'menu' || mode === 'levels' || mode === 'upgrades' || mode === 'missions' || mode === 'worlds') {
     const prevX = state.x;
     const handling = mode === 'playing' ? car.handling : 13;
-    state.x += (LANES[state.lane] - state.x) * Math.min(1, dt * handling);
+    if (mode === 'playing' && state.level && state.level.fx.rain) {
+      // wet road: a soft spring, so the car is slower to bite and slides a little past the lane
+      const k = 70 * (handling / 13);
+      state.vx += ((LANES[state.lane] - state.x) * k - state.vx * 9.5) * dt;
+      state.x += state.vx * dt;
+    } else {
+      state.x += (LANES[state.lane] - state.x) * Math.min(1, dt * handling);
+    }
     const vx = (state.x - prevX) / Math.max(dt, 1e-4);
     player.position.x = state.x;
     player.rotation.y = THREE.MathUtils.lerp(player.rotation.y, -vx * 0.02, Math.min(1, dt * 12));
@@ -2672,13 +3441,35 @@ function update(dt) {
     if (c === state.hitCar) {
       m.rotation.y += dt * 4 * state.slow;
       m.position.z -= trafficDz * 1.5;
+    } else if (c.mover) {
+      // big rig changing lanes: indicator blinks from far away, then it swings across
+      const mv = c.mover;
+      c.ind.visible = Math.floor(performance.now() / 160) % 2 === 0;
+      if (!mv.started && m.position.z > -82) mv.started = true;
+      if (mv.started) {
+        mv.t = Math.min(1, mv.t + dt / 0.8);
+        const e = mv.t * mv.t * (3 - 2 * mv.t);
+        m.position.x = LANES[mv.from] + (LANES[mv.to] - LANES[mv.from]) * e;
+        m.rotation.y = Math.PI - Math.sin(mv.t * Math.PI) * 0.16 * Math.sign(mv.to - mv.from);
+        if (mv.t >= 1) {
+          c.lane = mv.to;
+          c.mover = null;
+          c.ind.visible = false;
+          m.rotation.y = Math.PI;
+        }
+      }
     } else {
       c.wobble += dt * 3;
       m.position.x = LANES[c.lane] + Math.sin(c.wobble) * 0.06;
     }
     if (m.position.z - c.halfL > DESPAWN_Z) {
-      c.active = false;
-      m.visible = false;
+      killCar(c);
+      continue;
+    }
+    if (police.active && m.position.z > police.z - c.halfL - 2.3 && Math.abs(m.position.x - police.x) < 1.75) {
+      // the police car shoves traffic out of its way
+      burst(m.position.x, 1, m.position.z, 14, [0xffffff, 0x3a86ff, 0xff1744, 0x333333], 8, 1);
+      killCar(c);
       continue;
     }
     if (mode === 'playing' && state.invuln <= 0) {
@@ -2755,10 +3546,13 @@ function update(dt) {
       if (magnet && c.z > magDepth && c.z < 3 && Math.abs(c.x - state.x) < magRange) {
         c.x += (state.x - c.x) * Math.min(1, dt * 7);
       }
-      if (c.z > DESPAWN_Z) c.active = false;
-      else if (mode === 'playing' && Math.abs(c.x - state.x) < 1.3 && Math.abs(c.z - player.position.z) < halfL - 0.25) {
+      if (c.z > DESPAWN_Z) {
+        c.active = false;
+        if (mode === 'playing') state.coinsMissed++;
+      } else if (mode === 'playing' && Math.abs(c.x - state.x) < 1.3 && Math.abs(c.z - player.position.z) < halfL - 0.25) {
         c.active = false;
         state.coins += coinValue;
+        state.coinsGot++;
         missionProgress('coins', coinValue);
         vibrate(10, 70);
         Sound.coin();
@@ -2805,8 +3599,10 @@ function update(dt) {
   } else {
     const camX = player.position.x * 0.55;
     camera.position.x += (camX - camera.position.x) * Math.min(1, dt * 6);
-    camera.position.y = 5.6;
-    camera.position.z = 8.6;
+    // boss levels pull the camera back so the police car behind is in view
+    const bossCam = police.active ? 1 : 0;
+    camera.position.y += (5.6 + bossCam * 1.2 - camera.position.y) * Math.min(1, dt * 3);
+    camera.position.z += (8.6 + bossCam * 3.6 - camera.position.z) * Math.min(1, dt * 3);
     if (state.shake > 0) {
       state.shake = Math.max(0, state.shake - dt * 1.6);
       const s = state.shake * state.shake * 0.6;
@@ -2830,7 +3626,7 @@ function update(dt) {
       state.shownScore = sc;
       ui.score.textContent = sc;
       if (!state.level && sc > save.best) ui.best.textContent = sc;
-      if (state.level && state.level.type === 'distance') updateGoalUI();
+      if (state.level && state.level.type !== 'coins') updateGoalUI();
     }
     if (state.coins !== state.shownCoins) {
       if (state.shownCoins >= 0) bump(ui.coins);
@@ -2868,7 +3664,7 @@ function loop() {
 
 // Boot
 window.__laneRushBooted = true;
-window.__laneRush = { state, save, LEVELS, CARS, traffic, pickups, spawnPickup }; // handy for debugging
+window.__laneRush = { state, save, getLevel, startRun, WORLDS, CARS, police, tun, amb, bendUniform, bendTarget, traffic, pickups, spawnPickup }; // handy for debugging
 goMenu();
 ui.loading.classList.add('hidden');
 loop();

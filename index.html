@@ -67,14 +67,24 @@
       </div>
     </div>
     <div id="menu-shields" class="best-line hidden"></div>
-    <div class="best-line">Endless best: <b id="menu-best">0</b> · ⭐ <b id="menu-stars">0</b>/60</div>
+    <div class="best-line">Endless best: <b id="menu-best">0</b> · ⭐ <b id="menu-stars">0</b></div>
   </div>
 
   <!-- ===== Level select ===== -->
+  <!-- ===== World select ===== -->
+  <div id="worlds" class="screen panel-screen hidden">
+    <div class="topbar">
+      <button class="back-btn" data-back>‹</button>
+      <h2>Worlds</h2>
+      <div class="wallet small"><span class="coin-icon"></span><b class="wallet-val">0</b></div>
+    </div>
+    <div id="world-list" class="level-list"></div>
+  </div>
+
   <div id="levels" class="screen panel-screen hidden">
     <div class="topbar">
       <button class="back-btn" data-back>‹</button>
-      <h2>Levels</h2>
+      <h2 id="levels-title">Levels</h2>
       <div class="wallet small"><span class="coin-icon"></span><b class="wallet-val">0</b></div>
     </div>
     <div id="level-list" class="level-list"></div>
@@ -86,6 +96,7 @@
       <div id="li-world" class="li-world">City</div>
       <h3 id="li-title">Level 1</h3>
       <div id="li-goal" class="li-goal">Reach 400 m</div>
+      <div id="li-fx" class="li-fx hidden"></div>
       <ul id="li-stars" class="li-stars"></ul>
       <div class="li-car">🚗 <b id="li-car">Rookie</b> <button id="li-change" class="link-btn">Change</button></div>
       <div class="modal-buttons">
@@ -186,6 +197,7 @@
     <div class="big-stars"><span class="bstar">★</span><span class="bstar">★</span><span class="bstar">★</span></div>
     <div class="card">
       <div class="row"><span>Coins collected</span><b id="c-coins">0</b></div>
+      <div class="row chal"><span id="c-chal-text">Challenge</span><b id="c-chal">✓</b></div>
       <div class="row"><span>Star bonus</span><b id="c-bonus">0</b></div>
       <div class="row total"><span>Coins earned</span><b id="c-total">0</b></div>
       <div id="c-unlock" class="new-best hidden"></div>

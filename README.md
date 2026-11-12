@@ -8,10 +8,23 @@ A bright, low-poly 3D endless car game for mobile phones, built with [Three.js](
 - Grab the spinning gold coins and spend them in the garage.
 
 ## Modes
-- **Levels** — 20 levels, each with a goal (reach a distance or collect coins) and 1–3 stars.
-  Distance levels give extra stars for coins collected; coin levels give extra stars for speed.
-  Every 5 levels the world changes: 🏙️ City → 🏜️ Desert → 🌙 Night → ❄️ Snow.
+- **Levels** — 60 campaign levels in 8 worlds, then endless generated levels. Each level has a goal and up to 3 stars:
+  one for finishing, one for a coin or time target, and one for a **challenge** shown before you start
+  (collect 80% of the coins, do a number of near misses, finish fast, or avoid all power-ups).
 - **Endless** — the original mode: survive as long as you can and beat your best score.
+
+## Worlds
+| World | Levels | What's different |
+| --- | --- | --- |
+| 🏙️ City, 🏜️ Desert, 🌙 Night, ❄️ Snow | 1–20 (5 each) | The original worlds |
+| 🌧️ Rain | 21–30 | Wet road: the car slides a little when changing lanes |
+| ⛰️ Mountain | 31–40 | Winding roads that climb and dive |
+| 🚇 Tunnel | 41–50 | Sudden dark tunnels with lamps inside and bright exits |
+| 🛣️ Highway | 51–60 | Big trucks that signal and change lanes |
+| ♾️ Beyond | 61+ | Generated forever, each a little harder, mixing mechanics from every world |
+
+The last level of every world (and every 10th level in Beyond) is a **boss level**: a police car chases you,
+marks a lane in red and charges down it. Dodge it and reach the finish line.
 
 ## Garage
 | Car | Unlocks at | Price | Notes |
@@ -22,6 +35,8 @@ A bright, low-poly 3D endless car game for mobile phones, built with [Three.js](
 | Titan | Level 9 | 800 | Big 4x4, survives one crash per run |
 | Phantom | Level 13 | 1400 | Top speed and handling |
 | Comet | Level 17 | 2500 | Hover car with a coin magnet |
+| Aurora | 40 stars in total | free | Near misses pay double |
+| Legend | 100 stars in total | free | Coin magnet and armor built in |
 
 ## Power-ups
 Power-ups float on the road in a coloured bubble. While one is active, an icon with a countdown bar shows under the HUD.

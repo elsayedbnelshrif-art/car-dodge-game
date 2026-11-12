@@ -1257,3 +1257,136 @@ body {
   font-size: 14px;
   padding: 6px 14px;
 }
+
+/* =========================================================
+   World select, new worlds, challenges
+   ========================================================= */
+.world.rain { background: linear-gradient(135deg, #7b8fa3, #4a5a6a); }
+.world.mountain { background: linear-gradient(135deg, #74c69d, #40916c); }
+.world.tunnel { background: linear-gradient(135deg, #a68a64, #582f0e); }
+.world.highway { background: linear-gradient(135deg, #8d99ae, #495057); }
+.world.beyond { background: linear-gradient(135deg, #f72585, #7209b7 50%, #3a0ca3); }
+
+.world-card {
+  width: 100%;
+  max-width: 460px;
+  margin: 8px auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: none;
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.world-card.locked {
+  filter: grayscale(0.75) brightness(0.75);
+}
+
+.world-card.current {
+  outline: 3px solid #ffd60a;
+}
+
+.wc-emoji {
+  font-size: 34px;
+  width: 44px;
+  text-align: center;
+}
+
+.wc-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wc-name {
+  font-size: 21px;
+  font-weight: 900;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+}
+
+.wc-sub {
+  font-size: 12.5px;
+  font-weight: 700;
+  opacity: 0.95;
+}
+
+.wc-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-weight: 900;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.wc-side small {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.lvl.boss:not(.locked) {
+  background: #ffe3e3;
+  color: #c1121f;
+}
+
+.lvl small {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.lvl {
+  font-size: 19px;
+}
+
+.li-fx {
+  font-size: 13px;
+  font-weight: 800;
+  color: #555b6e;
+  margin: -4px 0 10px;
+}
+
+.li-stars .chal {
+  margin-top: 4px;
+  padding: 5px 9px;
+  background: #e7f5ff;
+  border-radius: 10px;
+  line-height: 1.35;
+}
+
+.li-stars .best {
+  text-align: center;
+  margin-top: 6px;
+  color: #e09b00;
+  font-weight: 800;
+}
+
+.card .row.chal span {
+  font-size: 14px;
+  text-align: left;
+  padding-right: 10px;
+}
+
+.card .row.chal b.no {
+  color: #ff6b6b;
+}
+
+.card .row.chal b.ok {
+  color: #80ed99;
+}
+
+.world-head > span:first-child {
+  font-size: 14px;
+  text-align: left;
+  padding-right: 8px;
+}
+
+.world-head > span:last-child {
+  white-space: nowrap;
+}
